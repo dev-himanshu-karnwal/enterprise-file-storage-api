@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     s3_presign_expire_seconds: int = 3600
     max_upload_size_bytes: int = 100 * 1024 * 1024  # 100 MB
 
+    # Soft-deleted items older than this are permanently purged (S3 + DB).
+    # Testing default: 60s. Production (30 days): 2592000.
+    trash_retention_seconds: int = 60
+    trash_purge_interval_seconds: int = 20
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.pagination import paginate
-from models import Folder, Project, User
+from models import Folder, Project, StoredFile, User
 from schemas.common import PaginatedResponse, PaginationParams
 from schemas.workspace import (
     CreateFolderRequest,
@@ -379,6 +379,17 @@ def delete_folder(db: Session, *, actor: User, folder_id: UUID) -> None:
         child.deleted_at = now
         child.deleted_by = actor.id
 
+    folder_ids = [folder.id, *[child.id for child in descendants]]
+    files = db.scalars(
+        select(StoredFile).where(
+            StoredFile.folder_id.in_(folder_ids),
+            StoredFile.deleted_at.is_(None),
+        )
+    ).all()
+    for stored in files:
+        stored.deleted_at = now
+        stored.deleted_by = actor.id
+
     db.commit()
 
 
@@ -425,6 +436,17 @@ def restore_folder(db: Session, *, actor: User, folder_id: UUID) -> FolderRespon
     for child in descendants:
         child.deleted_at = None
         child.deleted_by = None
+
+    folder_ids = [folder.id, *[child.id for child in descendants]]
+    files = db.scalars(
+        select(StoredFile).where(
+            StoredFile.folder_id.in_(folder_ids),
+            StoredFile.deleted_at.is_not(None),
+        )
+    ).all()
+    for stored in files:
+        stored.deleted_at = None
+        stored.deleted_by = None
 
     db.commit()
     db.refresh(folder)

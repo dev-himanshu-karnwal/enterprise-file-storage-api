@@ -164,10 +164,7 @@ def presign_upload(
         version=version,
         filename=filename,
     )
-    upload_url = s3_storage.create_presigned_put_url(
-        storage_key,
-        content_type=content_type,
-    )
+    upload_url = s3_storage.create_presigned_put_url(storage_key)
     upload_id = str(uuid.uuid4())
     pending = {
         "upload_id": upload_id,
@@ -195,7 +192,7 @@ def presign_upload(
         storage_key=storage_key,
         file_id=file_id,
         version=version,
-        headers={"Content-Type": content_type},
+        headers={},
         expires_in=settings.s3_presign_expire_seconds,
     )
 

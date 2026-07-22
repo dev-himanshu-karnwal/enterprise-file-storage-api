@@ -30,6 +30,10 @@ def store_pending_upload(*, upload_id: str, payload: str, ttl_seconds: int) -> N
     get_redis().setex(f"upload:{upload_id}", ttl_seconds, payload)
 
 
+def get_pending_upload(upload_id: str) -> str | None:
+    return get_redis().get(f"upload:{upload_id}")
+
+
 def pop_pending_upload(upload_id: str) -> str | None:
     key = f"upload:{upload_id}"
     client = get_redis()

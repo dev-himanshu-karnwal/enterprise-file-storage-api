@@ -54,7 +54,7 @@ export async function uploadFile(
     file: File;
   },
 ) {
-  // 1) Ask API for a short-lived S3 PUT URL
+  // 1) API only issues a short-lived S3 PUT URL (tiny JSON response)
   const session = await apiRequest<PresignUploadResponse>(
     "/files/uploads/presign",
     {
@@ -70,20 +70,29 @@ export async function uploadFile(
     accessToken,
   );
 
-  // 2) Browser uploads bytes directly to S3 (not through our API)
-  const putResponse = await fetch(session.upload_url, {
-    method: "PUT",
-    headers: session.headers,
-    body: file,
-  });
+  // 2) Browser uploads bytes straight to S3 (no API bandwidth)
+  let putResponse: Response;
+  try {
+    putResponse = await fetch(session.upload_url, {
+      method: "PUT",
+      body: file,
+      mode: "cors",
+    });
+  } catch {
+    throw new ApiError(
+      0,
+      "S3 CORS blocked the upload. From server/: python scripts/configure_s3_cors.py",
+    );
+  }
   if (!putResponse.ok) {
+    const bodyText = await putResponse.text().catch(() => "");
     throw new ApiError(
       putResponse.status,
-      `S3 upload failed (${putResponse.status}). Check bucket CORS allows PUT from this origin.`,
+      `S3 upload failed (${putResponse.status}). ${bodyText.slice(0, 200) || "Check IAM PutObject + bucket CORS."}`,
     );
   }
 
-  // 3) Tell API the object is in S3 so it can save metadata
+  // 3) API only stores metadata after S3 has the object
   const checksum = await sha256Hex(file);
   return apiRequest<StoredFile>(
     "/files/uploads/complete",

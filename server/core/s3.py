@@ -92,11 +92,29 @@ def create_presigned_get_url(storage_key: str, *, filename: str | None = None) -
         ) from exc
 
 
-def create_presigned_put_url(
-    storage_key: str,
+def put_object_bytes(
     *,
+    storage_key: str,
+    body: bytes,
     content_type: str,
-) -> str:
+) -> None:
+    try:
+        client = get_s3_client()
+        client.put_object(
+            Bucket=settings.s3_bucket,
+            Key=storage_key,
+            Body=body,
+            ContentType=content_type,
+        )
+    except (BotoCoreError, ClientError, S3StorageError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to upload to S3: {exc}",
+        ) from exc
+
+
+def create_presigned_put_url(storage_key: str) -> str:
+    """Presign a PUT without binding Content-Type (avoids browser header mismatches)."""
     try:
         client = get_s3_client()
         return client.generate_presigned_url(
@@ -104,7 +122,6 @@ def create_presigned_put_url(
             Params={
                 "Bucket": settings.s3_bucket,
                 "Key": storage_key,
-                "ContentType": content_type,
             },
             ExpiresIn=settings.s3_presign_expire_seconds,
         )
@@ -138,7 +155,7 @@ def head_object(storage_key: str) -> dict:
 
 
 def delete_object(storage_key: str) -> None:
-    """Best-effort delete; soft-delete flows may leave objects until a purge job."""
+    """Best-effort delete used by trash purge and other hard-delete paths."""
     try:
         client = get_s3_client()
         client.delete_object(Bucket=settings.s3_bucket, Key=storage_key)

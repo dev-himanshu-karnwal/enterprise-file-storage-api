@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+import asyncio
+import logging
 
 import redis
 from fastapi import FastAPI, status
@@ -19,13 +21,24 @@ from routers import (
     search_router,
     users_router,
 )
+from services.trash_purge_worker import run_trash_purge_loop
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
+    purge_task = asyncio.create_task(run_trash_purge_loop(), name="trash-purge-loop")
+    try:
+        yield
+    finally:
+        purge_task.cancel()
+        try:
+            await purge_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("Trash purge loop stopped")
 
 
 app = FastAPI(
