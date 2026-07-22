@@ -1,6 +1,15 @@
+from models.file import FileVersion, StoredFile
 from models.folder import Folder
 from models.organization import Organization
 from models.project import Project
 from models.user import User, UserRole
 
-__all__ = ["Folder", "Organization", "Project", "User", "UserRole"]
+__all__ = [
+    "FileVersion",
+    "Folder",
+    "Organization",
+    "Project",
+    "StoredFile",
+    "User",
+    "UserRole",
+]

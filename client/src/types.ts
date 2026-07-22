@@ -107,6 +107,44 @@ export interface UpdateFolderPayload {
   parent_folder_id?: string | null;
 }
 
+export interface StoredFile {
+  id: string;
+  project_id: string;
+  folder_id: string | null;
+  current_version: number;
+  filename: string;
+  extension: string;
+  mime_type: string;
+  size: number;
+  checksum: string;
+  storage_key: string;
+  uploaded_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FileVersion {
+  id: string;
+  file_id: string;
+  version: number;
+  storage_key: string;
+  size: number;
+  checksum: string;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
+export interface DownloadInfo {
+  download_url: string;
+  expires_in: number;
+  filename: string;
+  version: number;
+  size: number;
+  mime_type: string;
+}
+
 export interface ApiErrorBody {
   detail?: string | { msg: string }[];
 }

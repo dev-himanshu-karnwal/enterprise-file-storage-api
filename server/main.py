@@ -11,6 +11,7 @@ from config import get_settings
 from database import engine
 from routers import (
     auth_router,
+    files_router,
     folders_router,
     organizations_router,
     projects_router,
@@ -44,6 +45,7 @@ app.include_router(users_router)
 app.include_router(organizations_router)
 app.include_router(projects_router)
 app.include_router(folders_router)
+app.include_router(files_router)
 
 
 @app.get("/")
@@ -74,6 +76,18 @@ def health():
     except redis.RedisError as exc:
         healthy = False
         checks["redis"] = f"error: {exc.__class__.__name__}"
+
+    try:
+        from core.s3 import head_bucket
+
+        if not settings.s3_configured:
+            checks["s3"] = "not_configured"
+        else:
+            head_bucket()
+            checks["s3"] = "ok"
+    except Exception as exc:  # noqa: BLE001 - surface any S3/config failure in health
+        healthy = False
+        checks["s3"] = f"error: {exc.__class__.__name__}"
 
     response_status = "healthy" if healthy else "unhealthy"
     http_status = status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE
