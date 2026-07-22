@@ -2,11 +2,14 @@ from contextlib import asynccontextmanager
 
 import redis
 from fastapi import FastAPI, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from config import get_settings
+from database import engine
+from routers import auth_router, users_router
 
 settings = get_settings()
 
@@ -16,17 +19,27 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="Enterprise File Storage API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth_router)
+app.include_router(users_router)
 
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to my FastAPI application!"}
-
-
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: str | None = None):
-    return {"item_id": item_id, "query_param": q}
+    return {"message": "Welcome to the Enterprise File Storage API"}
 
 
 @app.get("/health")
@@ -35,7 +48,6 @@ def health():
     healthy = True
 
     try:
-        engine = create_engine(settings.database_url, pool_pre_ping=True)
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
         checks["database"] = "ok"

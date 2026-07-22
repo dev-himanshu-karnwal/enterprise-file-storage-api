@@ -2,8 +2,8 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, String, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Uuid, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
 
@@ -24,9 +24,9 @@ class User(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    # FK to organizations.id will be added when the Organization model exists.
     organization_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -57,6 +57,11 @@ class User(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    organization: Mapped["Organization"] = relationship(  # noqa: F821
+        "Organization",
+        back_populates="users",
     )
 
     def __repr__(self) -> str:
