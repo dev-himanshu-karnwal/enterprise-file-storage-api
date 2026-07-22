@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import * as authApi from "../api/auth";
-import { setSessionClearedListener, setTokenRefreshListener } from "../api/client";
+import { ApiError, setSessionClearedListener, setTokenRefreshListener } from "../api/client";
 import type {
   CreateUserPayload,
   LoginPayload,
@@ -56,6 +56,27 @@ function clearSession() {
   localStorage.removeItem(REFRESH_KEY);
 }
 
+function readStoredSession(): {
+  user: User;
+  access: string;
+  refresh: string;
+} | null {
+  const storedUser = localStorage.getItem(USER_KEY);
+  const storedAccess = localStorage.getItem(ACCESS_KEY);
+  const storedRefresh = localStorage.getItem(REFRESH_KEY);
+  if (!storedUser || !storedAccess || !storedRefresh) return null;
+  try {
+    return {
+      user: JSON.parse(storedUser) as User,
+      access: storedAccess,
+      refresh: storedRefresh,
+    };
+  } catch {
+    clearSession();
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -68,7 +89,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRefreshToken(refresh);
       const storedUser = localStorage.getItem(USER_KEY);
       if (storedUser) {
-        setUser(JSON.parse(storedUser) as User);
+        try {
+          setUser(JSON.parse(storedUser) as User);
+        } catch {
+          // ignore malformed cache; next /me will refresh it
+        }
       }
     });
     setSessionClearedListener(() => {
@@ -83,24 +108,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem(USER_KEY);
-    const storedAccess = localStorage.getItem(ACCESS_KEY);
-    const storedRefresh = localStorage.getItem(REFRESH_KEY);
+    let cancelled = false;
+    const stored = readStoredSession();
 
-    if (!storedUser || !storedAccess || !storedRefresh) {
+    if (!stored) {
       setLoading(false);
       return;
     }
 
-    setUser(JSON.parse(storedUser) as User);
-    setAccessToken(storedAccess);
-    setRefreshToken(storedRefresh);
+    setUser(stored.user);
+    setAccessToken(stored.access);
+    setRefreshToken(stored.refresh);
 
-    // getMe uses apiRequest, which refreshes on 401 and updates stored tokens.
-    // Only clear the session if both the request and refresh fail.
+    // Validate the session. apiRequest already refreshes on 401.
+    // Never wipe the session on transient errors (network, 5xx, Strict Mode races).
     authApi
-      .getMe(storedAccess)
+      .getMe(stored.access)
       .then((fresh) => {
+        if (cancelled) return;
         setUser(fresh);
         localStorage.setItem(USER_KEY, JSON.stringify(fresh));
         const nextAccess = localStorage.getItem(ACCESS_KEY);
@@ -108,13 +133,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (nextAccess) setAccessToken(nextAccess);
         if (nextRefresh) setRefreshToken(nextRefresh);
       })
-      .catch(() => {
-        clearSession();
-        setUser(null);
-        setAccessToken(null);
-        setRefreshToken(null);
+      .catch((err) => {
+        if (cancelled) return;
+        // Only log out when auth is definitively rejected and storage was cleared
+        // by the refresh helper (or tokens are gone).
+        const stillHasSession = Boolean(localStorage.getItem(REFRESH_KEY));
+        if (err instanceof ApiError && err.status === 401 && !stillHasSession) {
+          clearSession();
+          setUser(null);
+          setAccessToken(null);
+          setRefreshToken(null);
+        }
+        // Otherwise keep the cached user — a blip should not force re-login.
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const applyAuth = useCallback(async (result: Awaited<ReturnType<typeof authApi.login>>) => {
@@ -141,9 +179,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    if (accessToken && refreshToken) {
+    const access = localStorage.getItem(ACCESS_KEY) ?? accessToken;
+    const refresh = localStorage.getItem(REFRESH_KEY) ?? refreshToken;
+    if (access && refresh) {
       try {
-        await authApi.logout(accessToken, refreshToken);
+        await authApi.logout(access, refresh);
       } catch {
         // Clear local session even if the server revoke fails.
       }

@@ -47,6 +47,20 @@ function clearStoredSession() {
   onSessionCleared?.();
 }
 
+function isAuthPath(path: string) {
+  return (
+    path.startsWith("/auth/login") ||
+    path.startsWith("/auth/refresh") ||
+    path.startsWith("/auth/signup") ||
+    path.startsWith("/auth/register")
+  );
+}
+
+/**
+ * Exchange the refresh token for a new access token.
+ * Only clears the session on a definitive auth rejection (401/403).
+ * Transient failures (network, 5xx) leave the session intact.
+ */
 async function tryRefreshAccessToken(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight;
 
@@ -54,14 +68,23 @@ async function tryRefreshAccessToken(): Promise<string | null> {
     const refreshToken = localStorage.getItem(REFRESH_KEY);
     if (!refreshToken) return null;
 
-    const response = await fetch(`${API_BASE}/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+    } catch {
+      // Network blip — keep session, let the caller surface the original error.
+      return null;
+    }
 
     if (!response.ok) {
-      clearStoredSession();
+      // Only wipe credentials when the server says the refresh token is bad.
+      if (response.status === 401 || response.status === 403) {
+        clearStoredSession();
+      }
       return null;
     }
 
@@ -88,12 +111,15 @@ export async function apiRequest<T>(
   accessToken?: string | null,
   retryOnUnauthorized = true,
 ): Promise<T> {
+  // Prefer the newest token from storage — React state can briefly lag after a refresh.
+  const token = localStorage.getItem(ACCESS_KEY) ?? accessToken ?? null;
+
   const headers = new Headers(options.headers);
   if (!headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
   }
-  if (accessToken) {
-    headers.set("Authorization", `Bearer ${accessToken}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
   const response = await fetch(`${API_BASE}${path}`, {
@@ -101,15 +127,13 @@ export async function apiRequest<T>(
     headers,
   });
 
-  if (
-    response.status === 401 &&
-    retryOnUnauthorized &&
-    accessToken &&
-    !path.startsWith("/auth/login") &&
-    !path.startsWith("/auth/refresh") &&
-    !path.startsWith("/auth/signup") &&
-    !path.startsWith("/auth/register")
-  ) {
+  if (response.status === 401 && retryOnUnauthorized && token && !isAuthPath(path)) {
+    // Another request may have already refreshed while we were in flight.
+    const latest = localStorage.getItem(ACCESS_KEY);
+    if (latest && latest !== token) {
+      return apiRequest<T>(path, options, latest, false);
+    }
+
     const nextAccess = await tryRefreshAccessToken();
     if (nextAccess) {
       return apiRequest<T>(path, options, nextAccess, false);

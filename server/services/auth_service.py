@@ -1,4 +1,5 @@
 import re
+import time
 import uuid
 from uuid import UUID
 
@@ -190,11 +191,10 @@ def refresh_tokens(db: Session, refresh_token: str) -> AuthResponse:
             detail="Invalid or expired refresh token",
         ) from exc
 
-    if not redis_client.is_refresh_token_active(jti, str(user_id)):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token is invalid or revoked",
-        )
+    # Concurrent refresh (Strict Mode / multi-tab): reuse the just-rotated response.
+    cached = redis_client.get_rotated_refresh(jti)
+    if cached is not None:
+        return AuthResponse.model_validate(cached)
 
     user = db.scalar(select(User).where(User.id == user_id))
     if user is None:
@@ -203,9 +203,22 @@ def refresh_tokens(db: Session, refresh_token: str) -> AuthResponse:
             detail="User not found",
         )
 
-    # Rotate refresh token.
-    redis_client.revoke_refresh_token(jti)
-    return _auth_response(user)
+    # Atomically claim this jti so only one rotator wins.
+    if not redis_client.claim_refresh_token(jti, str(user_id)):
+        # Winner may still be writing the grace cache — wait briefly.
+        for _ in range(10):
+            cached = redis_client.get_rotated_refresh(jti)
+            if cached is not None:
+                return AuthResponse.model_validate(cached)
+            time.sleep(0.05)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token is invalid or revoked",
+        )
+
+    response = _auth_response(user)
+    redis_client.cache_rotated_refresh(jti, response.model_dump(mode="json"))
+    return response
 
 
 def forgot_password(db: Session, email: str) -> ForgotPasswordResponse:
