@@ -1,16 +1,27 @@
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from uuid import UUID
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from config import get_settings
+from core import redis_client
 from core import s3 as s3_storage
+from core.pagination import paginate
 from models import FileVersion, Folder, Project, StoredFile, User
-from schemas.files import DownloadResponse, FileResponse, FileVersionResponse
+from schemas.common import PaginatedResponse, PaginationParams, SearchFileResult
+from schemas.files import (
+    CompleteUploadRequest,
+    DownloadResponse,
+    FileResponse,
+    FileVersionResponse,
+    PresignUploadRequest,
+    PresignUploadResponse,
+)
 
 settings = get_settings()
 
@@ -98,13 +109,102 @@ def _find_active_by_name(
     )
 
 
-async def upload_file(
+def presign_upload(
     db: Session,
     *,
     actor: User,
-    upload: UploadFile,
-    project_id: UUID,
-    folder_id: UUID | None,
+    payload: PresignUploadRequest,
+) -> PresignUploadResponse:
+    if not settings.s3_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="S3 is not configured on the server",
+        )
+    if payload.size > settings.max_upload_size_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds max size of {settings.max_upload_size_bytes} bytes",
+        )
+
+    project = _get_project_for_org(
+        db,
+        project_id=payload.project_id,
+        organization_id=actor.organization_id,
+    )
+    if payload.folder_id is not None:
+        _get_folder_in_project(
+            db,
+            folder_id=payload.folder_id,
+            project_id=project.id,
+            organization_id=actor.organization_id,
+        )
+
+    filename = payload.filename.strip() or "untitled"
+    content_type = (payload.content_type or "application/octet-stream").strip()
+    existing = _find_active_by_name(
+        db,
+        project_id=project.id,
+        folder_id=payload.folder_id,
+        filename=filename,
+    )
+
+    if existing is None:
+        file_id = uuid.uuid4()
+        version = 1
+        existing_file_id = None
+    else:
+        file_id = existing.id
+        version = existing.current_version + 1
+        existing_file_id = str(existing.id)
+
+    storage_key = s3_storage.build_storage_key(
+        organization_id=str(actor.organization_id),
+        project_id=str(project.id),
+        file_id=str(file_id),
+        version=version,
+        filename=filename,
+    )
+    upload_url = s3_storage.create_presigned_put_url(
+        storage_key,
+        content_type=content_type,
+    )
+    upload_id = str(uuid.uuid4())
+    pending = {
+        "upload_id": upload_id,
+        "user_id": str(actor.id),
+        "organization_id": str(actor.organization_id),
+        "project_id": str(project.id),
+        "folder_id": str(payload.folder_id) if payload.folder_id else None,
+        "file_id": str(file_id),
+        "existing_file_id": existing_file_id,
+        "version": version,
+        "filename": filename,
+        "content_type": content_type,
+        "size": payload.size,
+        "storage_key": storage_key,
+    }
+    redis_client.store_pending_upload(
+        upload_id=upload_id,
+        payload=json.dumps(pending),
+        ttl_seconds=settings.s3_presign_expire_seconds,
+    )
+
+    return PresignUploadResponse(
+        upload_id=upload_id,
+        upload_url=upload_url,
+        storage_key=storage_key,
+        file_id=file_id,
+        version=version,
+        headers={"Content-Type": content_type},
+        expires_in=settings.s3_presign_expire_seconds,
+    )
+
+
+def complete_upload(
+    db: Session,
+    *,
+    actor: User,
+    payload: CompleteUploadRequest,
 ) -> FileResponse:
     if not settings.s3_configured:
         raise HTTPException(
@@ -112,66 +212,47 @@ async def upload_file(
             detail="S3 is not configured on the server",
         )
 
-    project = _get_project_for_org(
-        db,
-        project_id=project_id,
-        organization_id=actor.organization_id,
-    )
-    if folder_id is not None:
-        _get_folder_in_project(
-            db,
-            folder_id=folder_id,
-            project_id=project.id,
-            organization_id=actor.organization_id,
-        )
-
-    filename = (upload.filename or "untitled").strip() or "untitled"
-    if len(filename) > 512:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Filename too long")
-
-    mime_type = upload.content_type or "application/octet-stream"
-    checksum, size = s3_storage.sha256_fileobj(upload.file)
-
-    if size == 0:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty files are not allowed")
-    if size > settings.max_upload_size_bytes:
+    raw = redis_client.pop_pending_upload(payload.upload_id)
+    if raw is None:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds max size of {settings.max_upload_size_bytes} bytes",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Upload session expired or invalid",
         )
 
-    existing = _find_active_by_name(
-        db,
-        project_id=project.id,
-        folder_id=folder_id,
-        filename=filename,
-    )
+    pending = json.loads(raw)
+    if pending["user_id"] != str(actor.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Upload session mismatch")
 
-    if existing is None:
-        file_id = uuid.uuid4()
-        version = 1
-        storage_key = s3_storage.build_storage_key(
-            organization_id=str(actor.organization_id),
-            project_id=str(project.id),
-            file_id=str(file_id),
-            version=version,
-            filename=filename,
-        )
-        s3_storage.upload_fileobj(
-            fileobj=upload.file,
-            storage_key=storage_key,
-            content_type=mime_type,
+    head = s3_storage.head_object(pending["storage_key"])
+    actual_size = int(head.get("ContentLength") or 0)
+    expected_size = int(pending["size"])
+    if actual_size != expected_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Uploaded size mismatch (expected {expected_size}, got {actual_size})",
         )
 
+    checksum = (payload.checksum or "").strip() or str(head.get("ETag", "")).strip('"')
+    if not checksum:
+        checksum = "unknown"
+
+    file_id = UUID(pending["file_id"])
+    version = int(pending["version"])
+    folder_id = UUID(pending["folder_id"]) if pending["folder_id"] else None
+    filename = pending["filename"]
+    content_type = pending["content_type"]
+    storage_key = pending["storage_key"]
+
+    if pending["existing_file_id"] is None:
         stored = StoredFile(
             id=file_id,
-            project_id=project.id,
+            project_id=UUID(pending["project_id"]),
             folder_id=folder_id,
             current_version=version,
             filename=filename,
             extension=_extension_of(filename),
-            mime_type=mime_type,
-            size=size,
+            mime_type=content_type,
+            size=actual_size,
             checksum=checksum,
             storage_key=storage_key,
             uploaded_by=actor.id,
@@ -181,7 +262,7 @@ async def upload_file(
             file_id=file_id,
             version=version,
             storage_key=storage_key,
-            size=size,
+            size=actual_size,
             checksum=checksum,
             uploaded_by=actor.id,
         )
@@ -191,24 +272,14 @@ async def upload_file(
         db.refresh(stored)
         return FileResponse.model_validate(stored)
 
-    # New version of an existing file
-    version = existing.current_version + 1
-    storage_key = s3_storage.build_storage_key(
-        organization_id=str(actor.organization_id),
-        project_id=str(project.id),
-        file_id=str(existing.id),
-        version=version,
-        filename=filename,
+    existing = _get_file_for_org(
+        db,
+        file_id=file_id,
+        organization_id=actor.organization_id,
     )
-    s3_storage.upload_fileobj(
-        fileobj=upload.file,
-        storage_key=storage_key,
-        content_type=mime_type,
-    )
-
     existing.current_version = version
-    existing.mime_type = mime_type
-    existing.size = size
+    existing.mime_type = content_type
+    existing.size = actual_size
     existing.checksum = checksum
     existing.storage_key = storage_key
     existing.uploaded_by = actor.id
@@ -219,7 +290,7 @@ async def upload_file(
         file_id=existing.id,
         version=version,
         storage_key=storage_key,
-        size=size,
+        size=actual_size,
         checksum=checksum,
         uploaded_by=actor.id,
     )
@@ -236,7 +307,8 @@ def list_files(
     project_id: UUID,
     folder_id: UUID | None = None,
     include_deleted: bool = False,
-) -> list[FileResponse]:
+    params: PaginationParams,
+) -> PaginatedResponse[FileResponse]:
     _get_project_for_org(
         db,
         project_id=project_id,
@@ -260,8 +332,59 @@ def list_files(
             )
             query = query.where(StoredFile.folder_id == folder_id)
 
-    files = db.scalars(query.order_by(StoredFile.filename.asc())).all()
-    return [FileResponse.model_validate(item) for item in files]
+    return paginate(
+        db,
+        query,
+        params=params,
+        model=StoredFile,
+        allowed_sort={"created_at", "filename", "size", "updated_at"},
+        serialize=lambda row: FileResponse.model_validate(row),
+    )
+
+
+def search_files(
+    db: Session,
+    *,
+    actor: User,
+    params: PaginationParams,
+    q: str | None = None,
+    extension: str | None = None,
+    uploaded_by: UUID | None = None,
+    project_id: UUID | None = None,
+) -> PaginatedResponse[SearchFileResult]:
+    query = (
+        select(StoredFile)
+        .join(Project, StoredFile.project_id == Project.id)
+        .where(
+            Project.organization_id == actor.organization_id,
+            StoredFile.deleted_at.is_(None),
+        )
+    )
+
+    if project_id is not None:
+        _get_project_for_org(
+            db,
+            project_id=project_id,
+            organization_id=actor.organization_id,
+        )
+        query = query.where(StoredFile.project_id == project_id)
+
+    if q:
+        query = query.where(StoredFile.filename.ilike(f"%{q.strip()}%"))
+    if extension:
+        query = query.where(StoredFile.extension == extension.lstrip(".").lower())
+    if uploaded_by is not None:
+        query = query.where(StoredFile.uploaded_by == uploaded_by)
+
+    # Default search sort to filename when caller leaves created_at — keep flexible.
+    return paginate(
+        db,
+        query,
+        params=params,
+        model=StoredFile,
+        allowed_sort={"created_at", "filename", "size", "updated_at", "extension"},
+        serialize=lambda row: SearchFileResult.model_validate(row),
+    )
 
 
 def get_file(db: Session, *, actor: User, file_id: UUID) -> FileResponse:

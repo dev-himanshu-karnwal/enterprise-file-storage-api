@@ -369,6 +369,43 @@ button {
   font-size: 1.05rem;
 }
 
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.toolbar-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.inline-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-field select {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.search-form {
+  max-width: 520px;
+}
+
 .item-copy {
   min-width: 0;
   display: flex;
@@ -646,6 +683,7 @@ button {
   border: 1px solid transparent;
   border-radius: 8px;
   color: var(--text-muted);
+  margin: 0;
 }
 
 .search-box:focus-within {

@@ -46,5 +46,28 @@ class DownloadResponse(BaseModel):
     mime_type: str
 
 
+class PresignUploadRequest(BaseModel):
+    project_id: UUID
+    folder_id: UUID | None = None
+    filename: str = Field(min_length=1, max_length=512)
+    content_type: str = Field(default="application/octet-stream", max_length=255)
+    size: int = Field(gt=0)
+
+
+class PresignUploadResponse(BaseModel):
+    upload_id: str
+    upload_url: str
+    storage_key: str
+    file_id: UUID
+    version: int
+    headers: dict[str, str]
+    expires_in: int
+
+
+class CompleteUploadRequest(BaseModel):
+    upload_id: str = Field(min_length=1)
+    checksum: str | None = Field(default=None, max_length=128)
+
+
 class MessageResponse(BaseModel):
     message: str = Field(default="ok")

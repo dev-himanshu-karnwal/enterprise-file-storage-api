@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import * as authApi from "../api/auth";
-import { setTokenRefreshListener } from "../api/client";
+import { setSessionClearedListener, setTokenRefreshListener } from "../api/client";
 import type {
   CreateUserPayload,
   LoginPayload,
@@ -71,7 +71,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(JSON.parse(storedUser) as User);
       }
     });
-    return () => setTokenRefreshListener(null);
+    setSessionClearedListener(() => {
+      setUser(null);
+      setAccessToken(null);
+      setRefreshToken(null);
+    });
+    return () => {
+      setTokenRefreshListener(null);
+      setSessionClearedListener(null);
+    };
   }, []);
 
   useEffect(() => {
@@ -88,29 +96,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(storedAccess);
     setRefreshToken(storedRefresh);
 
+    // getMe uses apiRequest, which refreshes on 401 and updates stored tokens.
+    // Only clear the session if both the request and refresh fail.
     authApi
       .getMe(storedAccess)
       .then((fresh) => {
         setUser(fresh);
         localStorage.setItem(USER_KEY, JSON.stringify(fresh));
+        const nextAccess = localStorage.getItem(ACCESS_KEY);
+        const nextRefresh = localStorage.getItem(REFRESH_KEY);
+        if (nextAccess) setAccessToken(nextAccess);
+        if (nextRefresh) setRefreshToken(nextRefresh);
       })
-      .catch(async () => {
-        try {
-          const renewed = await authApi.refresh(storedRefresh);
-          persistSession(
-            renewed.user,
-            renewed.tokens.access_token,
-            renewed.tokens.refresh_token,
-          );
-          setUser(renewed.user);
-          setAccessToken(renewed.tokens.access_token);
-          setRefreshToken(renewed.tokens.refresh_token);
-        } catch {
-          clearSession();
-          setUser(null);
-          setAccessToken(null);
-          setRefreshToken(null);
-        }
+      .catch(() => {
+        clearSession();
+        setUser(null);
+        setAccessToken(null);
+        setRefreshToken(null);
       })
       .finally(() => setLoading(false));
   }, []);

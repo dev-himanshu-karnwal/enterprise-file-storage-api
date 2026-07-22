@@ -10,11 +10,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from config import get_settings
 from database import engine
 from routers import (
+    audit_router,
     auth_router,
     files_router,
     folders_router,
     organizations_router,
     projects_router,
+    search_router,
     users_router,
 )
 
@@ -46,6 +48,8 @@ app.include_router(organizations_router)
 app.include_router(projects_router)
 app.include_router(folders_router)
 app.include_router(files_router)
+app.include_router(search_router)
+app.include_router(audit_router)
 
 
 @app.get("/")
@@ -91,6 +95,7 @@ def health():
 
     response_status = "healthy" if healthy else "unhealthy"
     http_status = status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+    checks["application"] = "ok"
     return JSONResponse(
         status_code=http_status,
         content={"status": response_status, "checks": checks},

@@ -26,6 +26,14 @@ function OrgIcon() {
   );
 }
 
+function AuditIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z" />
+    </svg>
+  );
+}
+
 function SearchIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
@@ -64,6 +72,7 @@ export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
 
   useEffect(() => {
     setNavOpen(false);
@@ -143,6 +152,17 @@ export function AppShell() {
               People
             </NavLink>
           )}
+          {isAdmin && (
+            <NavLink
+              to="/audit-logs"
+              className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+            >
+              <span className="nav-icon">
+                <AuditIcon />
+              </span>
+              Audit logs
+            </NavLink>
+          )}
         </nav>
 
         <div className="sidebar-footer">
@@ -178,11 +198,23 @@ export function AppShell() {
           <span className="brand-wordmark brand-wordmark-sm">efs</span>
         </div>
 
-        <label className="search-box">
+        <form
+          className="search-box"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const q = searchQ.trim();
+            navigate(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
+          }}
+        >
           <SearchIcon />
           <span className="sr-only">Search</span>
-          <input type="search" placeholder="Search files" disabled />
-        </label>
+          <input
+            type="search"
+            placeholder="Search files"
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+          />
+        </form>
 
         <div className="topbar-actions">
           <button type="button" className="btn btn-ghost topbar-signout" onClick={handleLogout}>

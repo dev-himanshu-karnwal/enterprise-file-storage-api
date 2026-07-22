@@ -26,12 +26,25 @@ function parseDetail(body: ApiErrorBody | null): string {
 }
 
 type TokenListener = (access: string, refresh: string) => void;
+type SessionClearedListener = () => void;
 
 let onTokensRefreshed: TokenListener | null = null;
+let onSessionCleared: SessionClearedListener | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
 
 export function setTokenRefreshListener(listener: TokenListener | null) {
   onTokensRefreshed = listener;
+}
+
+export function setSessionClearedListener(listener: SessionClearedListener | null) {
+  onSessionCleared = listener;
+}
+
+function clearStoredSession() {
+  localStorage.removeItem(ACCESS_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(USER_KEY);
+  onSessionCleared?.();
 }
 
 async function tryRefreshAccessToken(): Promise<string | null> {
@@ -48,9 +61,7 @@ async function tryRefreshAccessToken(): Promise<string | null> {
     });
 
     if (!response.ok) {
-      localStorage.removeItem(ACCESS_KEY);
-      localStorage.removeItem(REFRESH_KEY);
-      localStorage.removeItem(USER_KEY);
+      clearStoredSession();
       return null;
     }
 
@@ -101,7 +112,7 @@ export async function apiRequest<T>(
   ) {
     const nextAccess = await tryRefreshAccessToken();
     if (nextAccess) {
-      return apiRequest<T>(path, options, nextAccess, { retryOnUnauthorized: false });
+      return apiRequest<T>(path, options, nextAccess, false);
     }
   }
 

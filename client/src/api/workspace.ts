@@ -3,13 +3,23 @@ import type {
   CreateFolderPayload,
   CreateProjectPayload,
   Folder,
+  Paginated,
   Project,
   UpdateFolderPayload,
   UpdateProjectPayload,
 } from "../types";
 
-export function listProjects(accessToken: string) {
-  return apiRequest<Project[]>("/projects", { method: "GET" }, accessToken);
+function pageQuery(page = 1, pageSize = 100) {
+  return `page=${page}&page_size=${pageSize}`;
+}
+
+export async function listProjects(accessToken: string) {
+  const result = await apiRequest<Paginated<Project>>(
+    `/projects?${pageQuery(1, 100)}&sort=created_at&order=asc`,
+    { method: "GET" },
+    accessToken,
+  );
+  return result.items;
 }
 
 export function createProject(accessToken: string, payload: CreateProjectPayload) {
@@ -36,19 +46,30 @@ export function deleteProject(accessToken: string, projectId: string) {
   return apiRequest<void>(`/projects/${projectId}`, { method: "DELETE" }, accessToken);
 }
 
-export function listFolders(
+export async function listFolders(
   accessToken: string,
   projectId: string,
   parentFolderId?: string | null,
   includeDeleted = false,
 ) {
-  const params = new URLSearchParams({ project_id: projectId });
+  const params = new URLSearchParams({
+    project_id: projectId,
+    page: "1",
+    page_size: "100",
+    sort: "name",
+    order: "asc",
+  });
   if (includeDeleted) {
     params.set("include_deleted", "true");
   } else if (parentFolderId) {
     params.set("parent_folder_id", parentFolderId);
   }
-  return apiRequest<Folder[]>(`/folders?${params.toString()}`, { method: "GET" }, accessToken);
+  const result = await apiRequest<Paginated<Folder>>(
+    `/folders?${params.toString()}`,
+    { method: "GET" },
+    accessToken,
+  );
+  return result.items;
 }
 
 export function getFolder(accessToken: string, folderId: string) {

@@ -5,6 +5,7 @@ import type {
   ForgotPasswordResponse,
   LoginPayload,
   Organization,
+  Paginated,
   SignupPayload,
   UpdateOrganizationPayload,
   UpdateUserPayload,
@@ -62,7 +63,11 @@ export function getMe(accessToken: string) {
 }
 
 export function listUsers(accessToken: string) {
-  return apiRequest<User[]>("/users", { method: "GET" }, accessToken);
+  return apiRequest<Paginated<User>>(
+    "/users?page=1&page_size=100&sort=created_at&order=asc",
+    { method: "GET" },
+    accessToken,
+  ).then((result) => result.items);
 }
 
 export function createUser(accessToken: string, payload: CreateUserPayload) {

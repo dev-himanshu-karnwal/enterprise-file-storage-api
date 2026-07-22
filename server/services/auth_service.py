@@ -22,6 +22,7 @@ from core.security import (
     safe_decode,
     verify_password,
 )
+from core.pagination import paginate
 from models import Organization, User, UserRole
 from schemas.auth import (
     AuthResponse,
@@ -36,6 +37,7 @@ from schemas.auth import (
     UpdateUserRequest,
     UserResponse,
 )
+from schemas.common import PaginatedResponse, PaginationParams
 
 settings = get_settings()
 
@@ -266,13 +268,21 @@ def create_user_for_org(
     return UserResponse.model_validate(user)
 
 
-def list_users_for_org(db: Session, *, actor: User) -> list[UserResponse]:
-    users = db.scalars(
-        select(User)
-        .where(User.organization_id == actor.organization_id)
-        .order_by(User.created_at.asc())
-    ).all()
-    return [UserResponse.model_validate(user) for user in users]
+def list_users_for_org(
+    db: Session,
+    *,
+    actor: User,
+    params: PaginationParams,
+) -> PaginatedResponse[UserResponse]:
+    query = select(User).where(User.organization_id == actor.organization_id)
+    return paginate(
+        db,
+        query,
+        params=params,
+        model=User,
+        allowed_sort={"created_at", "name", "email", "role", "updated_at"},
+        serialize=lambda row: UserResponse.model_validate(row),
+    )
 
 
 def update_user(

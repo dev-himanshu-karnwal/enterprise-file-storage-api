@@ -7,7 +7,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from core.pagination import paginate
 from models import Folder, Project, User
+from schemas.common import PaginatedResponse, PaginationParams
 from schemas.workspace import (
     CreateFolderRequest,
     CreateProjectRequest,
@@ -124,13 +126,21 @@ def _update_descendant_paths(db: Session, folder: Folder, old_path: str, new_pat
 # ——— Projects ———
 
 
-def list_projects(db: Session, *, actor: User) -> list[ProjectResponse]:
-    projects = db.scalars(
-        select(Project)
-        .where(Project.organization_id == actor.organization_id)
-        .order_by(Project.created_at.asc())
-    ).all()
-    return [ProjectResponse.model_validate(project) for project in projects]
+def list_projects(
+    db: Session,
+    *,
+    actor: User,
+    params: PaginationParams,
+) -> PaginatedResponse[ProjectResponse]:
+    query = select(Project).where(Project.organization_id == actor.organization_id)
+    return paginate(
+        db,
+        query,
+        params=params,
+        model=Project,
+        allowed_sort={"created_at", "name", "updated_at"},
+        serialize=lambda row: ProjectResponse.model_validate(row),
+    )
 
 
 def create_project(
@@ -198,7 +208,8 @@ def list_folders(
     project_id: UUID,
     parent_folder_id: UUID | None = None,
     include_deleted: bool = False,
-) -> list[FolderResponse]:
+    params: PaginationParams,
+) -> PaginatedResponse[FolderResponse]:
     _get_project_for_org(
         db,
         project_id=project_id,
@@ -221,8 +232,14 @@ def list_folders(
             )
             query = query.where(Folder.parent_folder_id == parent_folder_id)
 
-    folders = db.scalars(query.order_by(Folder.name.asc())).all()
-    return [FolderResponse.model_validate(folder) for folder in folders]
+    return paginate(
+        db,
+        query,
+        params=params,
+        model=Folder,
+        allowed_sort={"created_at", "name", "updated_at", "path"},
+        serialize=lambda row: FolderResponse.model_validate(row),
+    )
 
 
 def get_folder(db: Session, *, actor: User, folder_id: UUID) -> FolderResponse:

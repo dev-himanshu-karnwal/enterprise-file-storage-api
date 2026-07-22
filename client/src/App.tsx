@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { GuestRoute, ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { AuditLogsPage } from "./pages/AuditLogsPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { LoginPage } from "./pages/LoginPage";
 import { OrganizationPage } from "./pages/OrganizationPage";
@@ -10,6 +11,7 @@ import { PeoplePage } from "./pages/PeoplePage";
 import { ProjectFoldersPage } from "./pages/ProjectFoldersPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import { SearchPage } from "./pages/SearchPage";
 import { SignupPage } from "./pages/SignupPage";
 
 function AdminOnly({ children }: { children: ReactNode }) {
@@ -34,12 +36,21 @@ export default function App() {
             <Route element={<AppShell />}>
               <Route index element={<ProjectsPage />} />
               <Route path="projects/:projectId" element={<ProjectFoldersPage />} />
+              <Route path="search" element={<SearchPage />} />
               <Route path="organization" element={<OrganizationPage />} />
               <Route
                 path="people"
                 element={
                   <AdminOnly>
                     <PeoplePage />
+                  </AdminOnly>
+                }
+              />
+              <Route
+                path="audit-logs"
+                element={
+                  <AdminOnly>
+                    <AuditLogsPage />
                   </AdminOnly>
                 }
               />

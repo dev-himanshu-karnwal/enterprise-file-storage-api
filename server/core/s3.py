@@ -92,6 +92,51 @@ def create_presigned_get_url(storage_key: str, *, filename: str | None = None) -
         ) from exc
 
 
+def create_presigned_put_url(
+    storage_key: str,
+    *,
+    content_type: str,
+) -> str:
+    try:
+        client = get_s3_client()
+        return client.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": settings.s3_bucket,
+                "Key": storage_key,
+                "ContentType": content_type,
+            },
+            ExpiresIn=settings.s3_presign_expire_seconds,
+        )
+    except (BotoCoreError, ClientError, S3StorageError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to create upload URL: {exc}",
+        ) from exc
+
+
+def head_object(storage_key: str) -> dict:
+    try:
+        client = get_s3_client()
+        return client.head_object(Bucket=settings.s3_bucket, Key=storage_key)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Upload not found in S3. Complete the S3 PUT before calling complete.",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to verify S3 object: {exc}",
+        ) from exc
+    except (BotoCoreError, S3StorageError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to verify S3 object: {exc}",
+        ) from exc
+
+
 def delete_object(storage_key: str) -> None:
     """Best-effort delete; soft-delete flows may leave objects until a purge job."""
     try:

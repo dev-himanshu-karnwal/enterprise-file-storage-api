@@ -145,6 +145,50 @@ export interface DownloadInfo {
   mime_type: string;
 }
 
+export interface PresignUploadResponse {
+  upload_id: string;
+  upload_url: string;
+  storage_key: string;
+  file_id: string;
+  version: number;
+  headers: Record<string, string>;
+  expires_in: number;
+}
+
+export interface Paginated<T> {
+  items: T[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+}
+
+export interface AuditLog {
+  id: string;
+  organization_id: string | null;
+  user_id: string | null;
+  action: string;
+  entity: string;
+  entity_id: string | null;
+  ip_address: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface SearchFileResult {
+  id: string;
+  project_id: string;
+  folder_id: string | null;
+  filename: string;
+  extension: string;
+  mime_type: string;
+  size: number;
+  current_version: number;
+  uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ApiErrorBody {
   detail?: string | { msg: string }[];
 }
