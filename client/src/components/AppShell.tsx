@@ -1,4 +1,5 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 function FolderIcon() {
@@ -25,6 +26,22 @@ function SearchIcon() {
   );
 }
 
+function MenuIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z" />
+    </svg>
+  );
+}
+
 function initials(name: string) {
   return name
     .split(" ")
@@ -37,8 +54,30 @@ function initials(name: string) {
 export function AppShell() {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [navOpen, setNavOpen] = useState(false);
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setNavOpen(false);
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [navOpen]);
 
   async function handleLogout() {
+    setNavOpen(false);
     await logout();
     navigate("/login", { replace: true });
   }
@@ -46,11 +85,27 @@ export function AppShell() {
   if (!user) return null;
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell${navOpen ? " nav-open" : ""}`}>
+      <button
+        type="button"
+        className="nav-backdrop"
+        aria-label="Close menu"
+        tabIndex={navOpen ? 0 : -1}
+        onClick={() => setNavOpen(false)}
+      />
+
+      <aside className="sidebar" id="app-sidebar">
         <div className="sidebar-brand">
           <div className="brand-mark">efs</div>
           <div className="brand-wordmark">efs</div>
+          <button
+            type="button"
+            className="icon-btn sidebar-close"
+            aria-label="Close menu"
+            onClick={() => setNavOpen(false)}
+          >
+            <CloseIcon />
+          </button>
         </div>
 
         <nav className="nav-section" aria-label="Primary">
@@ -83,17 +138,37 @@ export function AppShell() {
               <span>{user.role.replace("_", " ")}</span>
             </div>
           </div>
+          <button type="button" className="btn btn-secondary btn-block sidebar-signout" onClick={handleLogout}>
+            Sign out
+          </button>
         </div>
       </aside>
 
       <header className="topbar">
+        <button
+          type="button"
+          className="icon-btn menu-toggle"
+          aria-label="Open menu"
+          aria-expanded={navOpen}
+          aria-controls="app-sidebar"
+          onClick={() => setNavOpen(true)}
+        >
+          <MenuIcon />
+        </button>
+
+        <div className="topbar-brand" aria-hidden>
+          <div className="brand-mark brand-mark-sm">efs</div>
+          <span className="brand-wordmark brand-wordmark-sm">efs</span>
+        </div>
+
         <label className="search-box">
           <SearchIcon />
           <span className="sr-only">Search</span>
           <input type="search" placeholder="Search files" disabled />
         </label>
+
         <div className="topbar-actions">
-          <button type="button" className="btn btn-ghost" onClick={handleLogout}>
+          <button type="button" className="btn btn-ghost topbar-signout" onClick={handleLogout}>
             Sign out
           </button>
         </div>

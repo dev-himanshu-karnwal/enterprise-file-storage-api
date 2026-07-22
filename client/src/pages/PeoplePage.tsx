@@ -146,28 +146,30 @@ export function PeoplePage() {
               <p>Add the first teammate using the form.</p>
             </div>
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((person) => (
-                  <tr key={person.id}>
-                    <td>{person.name}</td>
-                    <td>{person.email}</td>
-                    <td>
-                      <span className={`badge badge-${person.role}`}>
-                        {person.role.replace("_", " ")}
-                      </span>
-                    </td>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {users.map((person) => (
+                    <tr key={person.id}>
+                      <td>{person.name}</td>
+                      <td>{person.email}</td>
+                      <td>
+                        <span className={`badge badge-${person.role}`}>
+                          {person.role.replace("_", " ")}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       </div>
