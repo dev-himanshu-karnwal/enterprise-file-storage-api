@@ -65,6 +65,48 @@ export interface ForgotPasswordResponse {
   reset_token?: string | null;
 }
 
+export interface Project {
+  id: string;
+  organization_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Folder {
+  id: string;
+  project_id: string;
+  parent_folder_id: string | null;
+  name: string;
+  path: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateProjectPayload {
+  name: string;
+  description?: string | null;
+}
+
+export interface UpdateProjectPayload {
+  name?: string;
+  description?: string | null;
+}
+
+export interface CreateFolderPayload {
+  project_id: string;
+  name: string;
+  parent_folder_id?: string | null;
+}
+
+export interface UpdateFolderPayload {
+  name?: string;
+  parent_folder_id?: string | null;
+}
+
 export interface ApiErrorBody {
   detail?: string | { msg: string }[];
 }

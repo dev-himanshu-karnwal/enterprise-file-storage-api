@@ -4,10 +4,11 @@ import { AppShell } from "./components/AppShell";
 import { GuestRoute, ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
-import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
 import { OrganizationPage } from "./pages/OrganizationPage";
 import { PeoplePage } from "./pages/PeoplePage";
+import { ProjectFoldersPage } from "./pages/ProjectFoldersPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { SignupPage } from "./pages/SignupPage";
 
@@ -31,7 +32,8 @@ export default function App() {
 
           <Route element={<ProtectedRoute />}>
             <Route element={<AppShell />}>
-              <Route index element={<HomePage />} />
+              <Route index element={<ProjectsPage />} />
+              <Route path="projects/:projectId" element={<ProjectFoldersPage />} />
               <Route path="organization" element={<OrganizationPage />} />
               <Route
                 path="people"

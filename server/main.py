@@ -9,7 +9,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from config import get_settings
 from database import engine
-from routers import auth_router, organizations_router, users_router
+from routers import (
+    auth_router,
+    folders_router,
+    organizations_router,
+    projects_router,
+    users_router,
+)
 
 settings = get_settings()
 
@@ -36,6 +42,8 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(organizations_router)
+app.include_router(projects_router)
+app.include_router(folders_router)
 
 
 @app.get("/")

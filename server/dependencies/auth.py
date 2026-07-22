@@ -57,3 +57,8 @@ def require_roles(*roles: UserRole) -> Callable[[User], User]:
         return current_user
 
     return dependency
+
+
+def require_write_access() -> Callable[[User], User]:
+    """Admins and members can mutate; read-only users cannot."""
+    return require_roles(UserRole.ADMIN, UserRole.MEMBER)

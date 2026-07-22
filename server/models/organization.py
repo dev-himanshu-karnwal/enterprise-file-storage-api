@@ -34,6 +34,11 @@ class Organization(Base):
         "User",
         back_populates="organization",
     )
+    projects: Mapped[list["Project"]] = relationship(  # noqa: F821
+        "Project",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<Organization id={self.id} slug={self.slug!r}>"
