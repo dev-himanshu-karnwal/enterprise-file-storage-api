@@ -40,6 +40,8 @@ This project mimics the backend of products like:
 
 ---
 
+
+
 # 2. Objectives
 
 The project should demonstrate proficiency in:
@@ -58,7 +60,11 @@ The project should demonstrate proficiency in:
 
 ---
 
+
+
 # 3. Users
+
+
 
 ## Admin
 
@@ -71,6 +77,8 @@ Can
 - Delete projects
 
 ---
+
+
 
 ## Member
 
@@ -89,6 +97,8 @@ Cannot
 
 ---
 
+
+
 ## Read Only User
 
 Can
@@ -104,9 +114,15 @@ Cannot
 
 ---
 
+
+
 # 4. Functional Requirements
 
+
+
 ## Authentication
+
+
 
 ### User Registration
 
@@ -121,6 +137,8 @@ Validation
 
 ---
 
+
+
 ### Login
 
 Returns
@@ -132,11 +150,15 @@ Refresh Token
 
 ---
 
+
+
 ### Logout
 
 Invalidate refresh token
 
 ---
+
+
 
 ### Password Reset
 
@@ -145,6 +167,8 @@ Invalidate refresh token
 - New password
 
 ---
+
+
 
 ## Organizations
 
@@ -160,6 +184,8 @@ Organization contains
 ```
 
 ---
+
+
 
 ## Projects
 
@@ -179,6 +205,8 @@ Organization
 
 ---
 
+
+
 ## Folder Management
 
 Operations
@@ -192,6 +220,8 @@ Operations
 Support nested folders.
 
 ---
+
+
 
 ## File Upload
 
@@ -227,6 +257,8 @@ Metadata includes
 
 ---
 
+
+
 ## File Versioning
 
 Every upload of an existing file creates
@@ -247,6 +279,8 @@ Users can
 
 ---
 
+
+
 ## Soft Delete
 
 Deleting a file should
@@ -264,6 +298,8 @@ deleted_by
 Files remain recoverable for 30 days.
 
 ---
+
+
 
 ## Audit Logs
 
@@ -305,6 +341,8 @@ Metadata
 
 ---
 
+
+
 ## Search
 
 Search by
@@ -319,6 +357,8 @@ Stretch Goal
 PostgreSQL Full Text Search
 
 ---
+
+
 
 ## Pagination
 
@@ -335,6 +375,8 @@ order
 ```
 
 ---
+
+
 
 ## Filtering
 
@@ -355,6 +397,8 @@ folder
 ```
 
 ---
+
+
 
 ## Rate Limiting
 
@@ -378,6 +422,8 @@ Example
 
 ---
 
+
+
 ## API Documentation
 
 Swagger
@@ -391,7 +437,11 @@ Should include
 
 ---
 
+
+
 # 5. Non Functional Requirements
+
+
 
 ### Performance
 
@@ -412,6 +462,8 @@ Search
 < 300ms
 
 ---
+
+
 
 ### Security
 
@@ -435,6 +487,8 @@ Secure headers
 
 ---
 
+
+
 ### Reliability
 
 Health endpoint
@@ -453,6 +507,8 @@ Application
 ```
 
 ---
+
+
 
 # 6. System Architecture
 
@@ -477,7 +533,11 @@ Application
 
 ---
 
+
+
 # 7. Database Design
+
+
 
 ## User
 
@@ -494,6 +554,8 @@ updated_at
 
 ---
 
+
+
 ## Organization
 
 ```
@@ -506,6 +568,8 @@ created_at
 
 ---
 
+
+
 ## Project
 
 ```
@@ -516,6 +580,8 @@ description
 ```
 
 ---
+
+
 
 ## Folder
 
@@ -528,6 +594,8 @@ path
 ```
 
 ---
+
+
 
 ## File
 
@@ -546,6 +614,8 @@ deleted_at
 
 ---
 
+
+
 ## FileVersion
 
 ```
@@ -559,6 +629,8 @@ uploaded_by
 ```
 
 ---
+
+
 
 ## AuditLog
 
@@ -576,6 +648,8 @@ timestamp
 
 ---
 
+
+
 ## RefreshToken
 
 ```
@@ -588,7 +662,11 @@ revoked
 
 ---
 
+
+
 # 8. API Endpoints
+
+
 
 ## Auth
 
@@ -606,6 +684,8 @@ POST /auth/reset-password
 
 ---
 
+
+
 ## Organizations
 
 ```
@@ -617,6 +697,8 @@ PATCH /organizations/{id}
 ```
 
 ---
+
+
 
 ## Users
 
@@ -632,6 +714,8 @@ DELETE /users/{id}
 
 ---
 
+
+
 ## Projects
 
 ```
@@ -646,6 +730,8 @@ DELETE /projects/{id}
 
 ---
 
+
+
 ## Folders
 
 ```
@@ -659,6 +745,8 @@ DELETE /folders/{id}
 ```
 
 ---
+
+
 
 ## Files
 
@@ -676,6 +764,8 @@ POST /files/{id}/restore
 
 ---
 
+
+
 ## File Versions
 
 ```
@@ -686,6 +776,8 @@ POST /files/{id}/restore-version/{version}
 
 ---
 
+
+
 ## Search
 
 ```
@@ -694,163 +786,3 @@ GET /search/files
 
 ---
 
-## Audit
-
-```
-GET /audit-logs
-```
-
----
-
-# 9. Technology Stack
-
-
-| Layer            | Technology           |
-| ---------------- | -------------------- |
-| API              | FastAPI              |
-| ASGI Server      | Uvicorn              |
-| ORM              | SQLAlchemy 2.0       |
-| Database         | PostgreSQL           |
-| Cache            | Redis                |
-| Storage          | AWS S3               |
-| Auth             | JWT                  |
-| Migrations       | Alembic              |
-| Validation       | Pydantic v2          |
-| Containerization | Docker               |
-| Reverse Proxy    | Nginx                |
-| CI/CD            | GitHub Actions       |
-| Testing          | Pytest               |
-| Deployment       | EC2 + Docker Compose |
-| Monitoring       | CloudWatch           |
-
-
----
-
-# 10. Project Structure
-
-```text
-app/
-├── api/
-│   ├── v1/
-│   ├── dependencies/
-│   └── routers/
-├── core/
-├── config/
-├── models/
-├── schemas/
-├── repositories/
-├── services/
-├── security/
-├── middleware/
-├── db/
-├── storage/
-├── cache/
-├── audit/
-├── utils/
-├── tests/
-└── main.py
-```
-
----
-
-# 11. Development Milestones
-
-### Milestone 1 – Project Foundation
-
-- FastAPI project setup
-- Configuration management
-- Docker & Docker Compose
-- PostgreSQL
-- Redis
-- SQLAlchemy
-- Alembic
-- Health checks
-
-### Milestone 2 – Authentication & Authorization
-
-- JWT authentication
-- Refresh tokens
-- Password hashing
-- RBAC
-- Protected endpoints
-
-### Milestone 3 – Core Domain
-
-- Organizations
-- Projects
-- Folders
-- CRUD APIs
-- Soft delete
-
-### Milestone 4 – File Storage
-
-- S3 integration
-- Presigned upload URLs
-- Download API
-- Metadata persistence
-- File versioning
-
-### Milestone 5 – Search & Performance
-
-- Pagination
-- Filtering
-- Full-text search
-- Redis caching
-- Rate limiting
-
-### Milestone 6 – Observability
-
-- Audit logging
-- Structured logging
-- Exception handling
-- Request ID middleware
-- Metrics endpoint
-
-### Milestone 7 – Testing
-
-- Unit tests
-- Integration tests
-- API tests
-- Test coverage >80%
-
-### Milestone 8 – Production Deployment
-
-- Nginx
-- Docker Compose
-- GitHub Actions
-- EC2 deployment
-- RDS PostgreSQL
-- S3
-- CloudWatch logs
-
----
-
-# 12. Success Criteria
-
-The project is considered complete when:
-
-- 70+ REST endpoints are implemented and documented.
-- Authentication, RBAC, and organization isolation are fully enforced.
-- Files are stored in S3 with metadata in PostgreSQL.
-- Version history and soft deletion work correctly.
-- Search, pagination, and filtering perform efficiently.
-- Audit logs capture all significant actions.
-- The full stack runs locally with Docker Compose.
-- CI runs linting, tests, and builds automatically.
-- The application is deployed to AWS with GitHub Actions, Nginx, EC2, RDS, S3, Redis, and CloudWatch.
-- A comprehensive README includes architecture diagrams, setup instructions, API documentation, and deployment steps.
-
-## Scope Control
-
-Avoid feature creep in v1. The following are **out of scope** and better suited for a future iteration:
-
-- Real-time collaborative editing
-- File sharing via public links
-- Antivirus scanning
-- Image/video thumbnail generation
-- Multi-region replication
-- End-to-end encryption
-- Billing and subscription management
-- Mobile-specific APIs
-
-Keeping v1 focused ensures you complete a production-quality backend while covering the core concepts in your Phase 2 roadmap.
