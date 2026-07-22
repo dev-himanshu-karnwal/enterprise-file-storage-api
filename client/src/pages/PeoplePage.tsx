@@ -10,12 +10,16 @@ const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
 ];
 
 export function PeoplePage() {
-  const { listUsers, createUser } = useAuth();
+  const { user: currentUser, listUsers, createUser, updateUser, deleteUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editRole, setEditRole] = useState<UserRole>("member");
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -55,6 +59,50 @@ export function PeoplePage() {
       setError(err instanceof ApiError ? err.message : "Failed to create user");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function startEdit(person: User) {
+    setEditingId(person.id);
+    setEditName(person.name);
+    setEditRole(person.role);
+    setError(null);
+    setSuccess(null);
+  }
+
+  async function saveEdit(userId: string) {
+    setRowBusy(userId);
+    setError(null);
+    setSuccess(null);
+    try {
+      await updateUser(userId, { name: editName.trim(), role: editRole });
+      setEditingId(null);
+      setSuccess("User updated.");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to update user");
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  async function handleDelete(person: User) {
+    if (person.id === currentUser?.id) return;
+    const confirmed = window.confirm(`Remove ${person.name} from the organization?`);
+    if (!confirmed) return;
+
+    setRowBusy(person.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      await deleteUser(person.id);
+      setSuccess(`${person.name} was removed.`);
+      if (editingId === person.id) setEditingId(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to delete user");
+    } finally {
+      setRowBusy(null);
     }
   }
 
@@ -153,20 +201,94 @@ export function PeoplePage() {
                     <th>Name</th>
                     <th>Email</th>
                     <th>Role</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((person) => (
-                    <tr key={person.id}>
-                      <td>{person.name}</td>
-                      <td>{person.email}</td>
-                      <td>
-                        <span className={`badge badge-${person.role}`}>
-                          {person.role.replace("_", " ")}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {users.map((person) => {
+                    const isEditing = editingId === person.id;
+                    const busy = rowBusy === person.id;
+                    return (
+                      <tr key={person.id}>
+                        <td>
+                          {isEditing ? (
+                            <input
+                              className="inline-input"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              aria-label="Edit name"
+                            />
+                          ) : (
+                            person.name
+                          )}
+                        </td>
+                        <td>{person.email}</td>
+                        <td>
+                          {isEditing ? (
+                            <select
+                              className="inline-input"
+                              value={editRole}
+                              onChange={(e) => setEditRole(e.target.value as UserRole)}
+                              aria-label="Edit role"
+                            >
+                              {ROLE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className={`badge badge-${person.role}`}>
+                              {person.role.replace("_", " ")}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <div className="row-actions">
+                            {isEditing ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn btn-primary btn-compact"
+                                  disabled={busy}
+                                  onClick={() => void saveEdit(person.id)}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-compact"
+                                  disabled={busy}
+                                  onClick={() => setEditingId(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-compact"
+                                  disabled={busy}
+                                  onClick={() => startEdit(person)}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-compact btn-danger-text"
+                                  disabled={busy || person.id === currentUser?.id}
+                                  onClick={() => void handleDelete(person)}
+                                >
+                                  Remove
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -69,6 +69,10 @@ export function LoginPage() {
       </form>
 
       <p className="auth-switch">
+        <Link to="/forgot-password">Forgot password?</Link>
+      </p>
+
+      <p className="auth-switch">
         New to efs? <Link to="/signup">Create an organization</Link>
       </p>
     </AuthLayout>

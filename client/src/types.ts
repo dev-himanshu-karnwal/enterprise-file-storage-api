@@ -10,6 +10,14 @@ export interface User {
   updated_at: string;
 }
 
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  storage_limit: number;
+  created_at: string;
+}
+
 export interface TokenPair {
   access_token: string;
   refresh_token: string;
@@ -38,6 +46,23 @@ export interface CreateUserPayload {
   email: string;
   password: string;
   role: UserRole;
+}
+
+export interface UpdateUserPayload {
+  name?: string;
+  email?: string;
+  role?: UserRole;
+  password?: string;
+}
+
+export interface UpdateOrganizationPayload {
+  name?: string;
+  storage_limit?: number;
+}
+
+export interface ForgotPasswordResponse {
+  message: string;
+  reset_token?: string | null;
 }
 
 export interface ApiErrorBody {

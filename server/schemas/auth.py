@@ -29,6 +29,25 @@ class LogoutRequest(BaseModel):
     refresh_token: str
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def password_must_be_strong(cls, value: str) -> str:
+        validate_password_strength(value)
+        return value
+
+
 class CreateUserRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     email: EmailStr
@@ -40,6 +59,30 @@ class CreateUserRequest(BaseModel):
     def password_must_be_strong(cls, value: str) -> str:
         validate_password_strength(value)
         return value
+
+
+class UpdateUserRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    email: EmailStr | None = None
+    role: UserRole | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def password_must_be_strong(cls, value: str | None) -> str | None:
+        if value is not None:
+            validate_password_strength(value)
+        return value
+
+
+class CreateOrganizationRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    storage_limit: int | None = Field(default=None, gt=0)
+
+
+class UpdateOrganizationRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    storage_limit: int | None = Field(default=None, gt=0)
 
 
 class TokenResponse(BaseModel):
@@ -60,6 +103,16 @@ class UserResponse(BaseModel):
     updated_at: datetime
 
 
+class OrganizationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    slug: str
+    storage_limit: int
+    created_at: datetime
+
+
 class AuthResponse(BaseModel):
     user: UserResponse
     tokens: TokenResponse
@@ -67,3 +120,8 @@ class AuthResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+    reset_token: str | None = None

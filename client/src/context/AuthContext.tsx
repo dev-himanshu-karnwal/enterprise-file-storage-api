@@ -8,7 +8,16 @@ import {
   type ReactNode,
 } from "react";
 import * as authApi from "../api/auth";
-import type { CreateUserPayload, LoginPayload, SignupPayload, User } from "../types";
+import { setTokenRefreshListener } from "../api/client";
+import type {
+  CreateUserPayload,
+  LoginPayload,
+  Organization,
+  SignupPayload,
+  UpdateOrganizationPayload,
+  UpdateUserPayload,
+  User,
+} from "../types";
 
 const ACCESS_KEY = "efs_access_token";
 const REFRESH_KEY = "efs_refresh_token";
@@ -22,7 +31,14 @@ interface AuthContextValue {
   login: (payload: LoginPayload) => Promise<void>;
   logout: () => Promise<void>;
   createUser: (payload: CreateUserPayload) => Promise<User>;
+  updateUser: (userId: string, payload: UpdateUserPayload) => Promise<User>;
+  deleteUser: (userId: string) => Promise<void>;
   listUsers: () => Promise<User[]>;
+  listOrganizations: () => Promise<Organization[]>;
+  updateOrganization: (
+    organizationId: string,
+    payload: UpdateOrganizationPayload,
+  ) => Promise<Organization>;
   isAdmin: boolean;
 }
 
@@ -47,6 +63,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setTokenRefreshListener((access, refresh) => {
+      setAccessToken(access);
+      setRefreshToken(refresh);
+      const storedUser = localStorage.getItem(USER_KEY);
+      if (storedUser) {
+        setUser(JSON.parse(storedUser) as User);
+      }
+    });
+    return () => setTokenRefreshListener(null);
+  }, []);
+
+  useEffect(() => {
     const storedUser = localStorage.getItem(USER_KEY);
     const storedAccess = localStorage.getItem(ACCESS_KEY);
     const storedRefresh = localStorage.getItem(REFRESH_KEY);
@@ -66,11 +94,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(fresh);
         localStorage.setItem(USER_KEY, JSON.stringify(fresh));
       })
-      .catch(() => {
-        clearSession();
-        setUser(null);
-        setAccessToken(null);
-        setRefreshToken(null);
+      .catch(async () => {
+        try {
+          const renewed = await authApi.refresh(storedRefresh);
+          persistSession(
+            renewed.user,
+            renewed.tokens.access_token,
+            renewed.tokens.refresh_token,
+          );
+          setUser(renewed.user);
+          setAccessToken(renewed.tokens.access_token);
+          setRefreshToken(renewed.tokens.refresh_token);
+        } catch {
+          clearSession();
+          setUser(null);
+          setAccessToken(null);
+          setRefreshToken(null);
+        }
       })
       .finally(() => setLoading(false));
   }, []);
@@ -120,10 +160,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [accessToken],
   );
 
+  const updateUser = useCallback(
+    async (userId: string, payload: UpdateUserPayload) => {
+      if (!accessToken) throw new Error("Not authenticated");
+      const updated = await authApi.updateUser(accessToken, userId, payload);
+      if (user?.id === userId) {
+        setUser(updated);
+        localStorage.setItem(USER_KEY, JSON.stringify(updated));
+      }
+      return updated;
+    },
+    [accessToken, user?.id],
+  );
+
+  const deleteUser = useCallback(
+    async (userId: string) => {
+      if (!accessToken) throw new Error("Not authenticated");
+      await authApi.deleteUser(accessToken, userId);
+    },
+    [accessToken],
+  );
+
   const listUsers = useCallback(async () => {
     if (!accessToken) throw new Error("Not authenticated");
     return authApi.listUsers(accessToken);
   }, [accessToken]);
+
+  const listOrganizations = useCallback(async () => {
+    if (!accessToken) throw new Error("Not authenticated");
+    return authApi.listOrganizations(accessToken);
+  }, [accessToken]);
+
+  const updateOrganization = useCallback(
+    async (organizationId: string, payload: UpdateOrganizationPayload) => {
+      if (!accessToken) throw new Error("Not authenticated");
+      return authApi.updateOrganization(accessToken, organizationId, payload);
+    },
+    [accessToken],
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -134,10 +208,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       createUser,
+      updateUser,
+      deleteUser,
       listUsers,
+      listOrganizations,
+      updateOrganization,
       isAdmin: user?.role === "admin",
     }),
-    [user, accessToken, loading, signup, login, logout, createUser, listUsers],
+    [
+      user,
+      accessToken,
+      loading,
+      signup,
+      login,
+      logout,
+      createUser,
+      updateUser,
+      deleteUser,
+      listUsers,
+      listOrganizations,
+      updateOrganization,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
