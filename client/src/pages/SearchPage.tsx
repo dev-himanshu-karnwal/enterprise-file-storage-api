@@ -2,14 +2,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { searchFiles } from "../api/ops";
+import { FileIcon, SearchIcon } from "../components/finder/icons";
 import { useAuth } from "../context/AuthContext";
 import type { FileTypeFilter, SearchFileResult } from "../types";
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+import { formatBytes } from "../utils/format";
 
 export function SearchPage() {
   const { accessToken } = useAuth();
@@ -62,16 +58,16 @@ export function SearchPage() {
   }
 
   return (
-    <>
-      <div className="page-header">
-        <div>
-          <h1>Search</h1>
-          <p>Find files by name, extension, tags, or type across your organization.</p>
+    <div className="finder-browser">
+      <div className="finder-toolbar">
+        <div className="finder-toolbar-actions">
+          <SearchIcon size={16} />
         </div>
+        <div className="finder-toolbar-title">Search</div>
       </div>
 
-      <form className="form-card page-form search-form" onSubmit={handleSubmit}>
-        <div className="form-stack">
+      <form className="finder-filters" onSubmit={handleSubmit}>
+        <div className="field-row">
           <div className="field">
             <label htmlFor="search-q">Filename</label>
             <input
@@ -81,140 +77,121 @@ export function SearchPage() {
               placeholder="quarterly-report"
             />
           </div>
-          <div className="field-row">
-            <div className="field">
-              <label htmlFor="search-ext">Extension</label>
-              <input
-                id="search-ext"
-                value={extension}
-                onChange={(e) => setExtension(e.target.value)}
-                placeholder="pdf"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="search-tag">Tag</label>
-              <input
-                id="search-tag"
-                value={tag}
-                onChange={(e) => setTag(e.target.value)}
-                placeholder="finance"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="search-type">Type</label>
-              <select
-                id="search-type"
-                value={fileType}
-                onChange={(e) => setFileType(e.target.value as FileTypeFilter | "")}
-              >
-                <option value="">Any</option>
-                <option value="image">Image</option>
-                <option value="pdf">PDF</option>
-                <option value="video">Video</option>
-                <option value="zip">ZIP / archive</option>
-                <option value="document">Document</option>
-              </select>
-            </div>
+          <div className="field">
+            <label htmlFor="search-ext">Extension</label>
+            <input
+              id="search-ext"
+              value={extension}
+              onChange={(e) => setExtension(e.target.value)}
+              placeholder="pdf"
+            />
           </div>
-          <button className="btn btn-primary" type="submit" disabled={loading}>
-            {loading ? "Searching…" : "Search"}
-          </button>
+          <div className="field">
+            <label htmlFor="search-tag">Tag</label>
+            <input
+              id="search-tag"
+              value={tag}
+              onChange={(e) => setTag(e.target.value)}
+              placeholder="finance"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="search-type">Type</label>
+            <select
+              id="search-type"
+              value={fileType}
+              onChange={(e) => setFileType(e.target.value as FileTypeFilter | "")}
+            >
+              <option value="">Any</option>
+              <option value="image">Image</option>
+              <option value="pdf">PDF</option>
+              <option value="video">Video</option>
+              <option value="zip">ZIP / archive</option>
+              <option value="document">Document</option>
+            </select>
+          </div>
         </div>
+        <button className="btn btn-primary btn-compact" type="submit" disabled={loading}>
+          {loading ? "Searching…" : "Search"}
+        </button>
       </form>
 
-      {error && <div className="alert alert-error page-alert">{error}</div>}
+      {error && <div className="finder-banner error">{error}</div>}
 
-      <div className="panel">
-        <div className="toolbar">
-          <strong style={{ fontSize: "0.9rem" }}>
-            {total ? `${total} result${total === 1 ? "" : "s"}` : "Results"}
-          </strong>
-        </div>
+      <div className="finder-content">
         {loading ? (
           <div className="empty-state">
             <p>Searching…</p>
           </div>
         ) : results.length === 0 ? (
           <div className="empty-state">
+            <SearchIcon size={36} className="empty-state-icon" />
             <h2>No files found</h2>
             <p>Try another filename, tag, or type.</p>
           </div>
         ) : (
-          <>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Ext</th>
-                    <th>Tags</th>
-                    <th>Size</th>
-                    <th>Version</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((file) => (
-                    <tr key={file.id}>
-                      <td>{file.filename}</td>
-                      <td>{file.extension || "—"}</td>
-                      <td>
-                        {file.tags?.length ? (
-                          <span className="tag-list">
-                            {file.tags.map((item) => (
-                              <span key={item} className="tag-chip">
-                                {item}
-                              </span>
-                            ))}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td>{formatBytes(file.size)}</td>
-                      <td>v{file.current_version}</td>
-                      <td>
-                        <Link
-                          to={
-                            file.folder_id
-                              ? `/projects/${file.project_id}?folder=${file.folder_id}`
-                              : `/projects/${file.project_id}`
-                          }
-                        >
-                          Open
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="finder-list">
+            <div className="finder-list-head">
+              <span>Name</span>
+              <span>Tags</span>
+              <span>Size</span>
+              <span>Kind</span>
             </div>
-            {totalPages > 1 && (
-              <div className="pager">
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-compact"
-                  disabled={page <= 1}
-                  onClick={() => void runSearch(page - 1)}
-                >
-                  Previous
-                </button>
-                <span>
-                  Page {page} of {totalPages}
+            {results.map((file) => (
+              <Link
+                key={file.id}
+                className="finder-list-row"
+                to={
+                  file.folder_id
+                    ? `/projects/${file.project_id}?folder=${file.folder_id}`
+                    : `/projects/${file.project_id}`
+                }
+                style={{ textDecoration: "none", color: "inherit" }}
+              >
+                <span className="finder-list-name">
+                  <FileIcon size={16} className="finder-row-icon file" />
+                  {file.filename}
                 </span>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-compact"
-                  disabled={page >= totalPages}
-                  onClick={() => void runSearch(page + 1)}
-                >
-                  Next
-                </button>
-              </div>
-            )}
-          </>
+                <span>{file.tags?.length ? file.tags.join(", ") : "—"}</span>
+                <span>{formatBytes(file.size)}</span>
+                <span>{file.extension ? file.extension.toUpperCase() : "File"}</span>
+              </Link>
+            ))}
+          </div>
         )}
       </div>
-    </>
+
+      <div className="finder-pathbar">
+        <span className="finder-path-seg current">Search</span>
+      </div>
+      <div className="finder-statusbar">
+        <span>
+          {loading ? "Searching…" : `${total} result${total === 1 ? "" : "s"}`}
+        </span>
+        {totalPages > 1 && (
+          <span className="pager">
+            <button
+              type="button"
+              className="btn btn-ghost btn-compact"
+              disabled={page <= 1}
+              onClick={() => void runSearch(page - 1)}
+            >
+              Previous
+            </button>
+            <span>
+              Page {page} of {totalPages}
+            </span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-compact"
+              disabled={page >= totalPages}
+              onClick={() => void runSearch(page + 1)}
+            >
+              Next
+            </button>
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
