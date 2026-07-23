@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -26,6 +27,16 @@ def search_files(
     extension: str | None = Query(None),
     uploaded_by: UUID | None = Query(None),
     project_id: UUID | None = Query(None),
+    folder_id: UUID | None = Query(None),
+    tag: str | None = Query(None),
+    uploaded_after: datetime | None = Query(None),
+    uploaded_before: datetime | None = Query(None),
+    file_type: str | None = Query(
+        None,
+        description="One of: image, pdf, video, zip, document",
+    ),
+    size_min: int | None = Query(None, ge=0),
+    size_max: int | None = Query(None, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     params: PaginationParams = Depends(pagination_params),
@@ -39,6 +50,13 @@ def search_files(
         extension=extension,
         uploaded_by=uploaded_by,
         project_id=project_id,
+        folder_id=folder_id,
+        tag=tag,
+        uploaded_after=uploaded_after,
+        uploaded_before=uploaded_before,
+        file_type=file_type,
+        size_min=size_min,
+        size_max=size_max,
     )
 
 

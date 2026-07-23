@@ -103,6 +103,10 @@ def list_folders(
     project_id: UUID = Query(...),
     parent_folder_id: UUID | None = Query(None),
     include_deleted: bool = Query(False),
+    all_folders: bool = Query(
+        False,
+        description="If true, return every active folder in the project (ignores parent_folder_id)",
+    ),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     params: PaginationParams = Depends(pagination_params),
@@ -113,6 +117,7 @@ def list_folders(
         project_id=project_id,
         parent_folder_id=parent_folder_id,
         include_deleted=include_deleted,
+        all_folders=all_folders,
         params=params,
     )
 

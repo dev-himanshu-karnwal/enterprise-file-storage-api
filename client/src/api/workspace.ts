@@ -51,6 +51,7 @@ export async function listFolders(
   projectId: string,
   parentFolderId?: string | null,
   includeDeleted = false,
+  allFolders = false,
 ) {
   const params = new URLSearchParams({
     project_id: projectId,
@@ -61,6 +62,8 @@ export async function listFolders(
   });
   if (includeDeleted) {
     params.set("include_deleted", "true");
+  } else if (allFolders) {
+    params.set("all_folders", "true");
   } else if (parentFolderId) {
     params.set("parent_folder_id", parentFolderId);
   }

@@ -15,6 +15,8 @@ export interface Organization {
   name: string;
   slug: string;
   storage_limit: number;
+  storage_used: number;
+  settings: Record<string, unknown>;
   created_at: string;
 }
 
@@ -58,6 +60,7 @@ export interface UpdateUserPayload {
 export interface UpdateOrganizationPayload {
   name?: string;
   storage_limit?: number;
+  settings?: Record<string, unknown>;
 }
 
 export interface ForgotPasswordResponse {
@@ -118,6 +121,7 @@ export interface StoredFile {
   size: number;
   checksum: string;
   storage_key: string;
+  tags: string[];
   uploaded_by: string | null;
   deleted_at: string | null;
   deleted_by: string | null;
@@ -184,9 +188,28 @@ export interface SearchFileResult {
   mime_type: string;
   size: number;
   current_version: number;
+  tags: string[];
   uploaded_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface UpdateFilePayload {
+  folder_id?: string | null;
+  tags?: string[];
+}
+
+export type FileTypeFilter = "image" | "pdf" | "video" | "zip" | "document";
+
+export interface FileListFilters {
+  uploadedAfter?: string;
+  uploadedBefore?: string;
+  fileType?: FileTypeFilter | "";
+  sizeMin?: number;
+  sizeMax?: number;
+  owner?: string;
+  tag?: string;
+  filterMode?: boolean;
 }
 
 export interface ApiErrorBody {

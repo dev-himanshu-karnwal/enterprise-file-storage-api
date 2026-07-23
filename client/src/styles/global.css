@@ -1121,3 +1121,71 @@ button {
     font-size: 0.875rem;
   }
 }
+
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 12%, transparent);
+  color: var(--text, #0f172a);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.storage-meter {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-bg, #f8fafc) 88%, #cbd5e1);
+}
+
+.storage-meter-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.875rem;
+}
+
+.storage-meter-track {
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #94a3b8 35%, transparent);
+  overflow: hidden;
+}
+
+.storage-meter-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent, #2563eb);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.upload-tags-field {
+  max-width: 420px;
+  margin: 0 0 12px;
+}
+
+.filter-panel {
+  margin-bottom: 16px;
+}

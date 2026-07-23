@@ -57,6 +57,7 @@ class SearchFileResult(BaseModel):
     mime_type: str
     size: int
     current_version: int
+    tags: list[str] = Field(default_factory=list)
     uploaded_by: UUID | None
     created_at: datetime
     updated_at: datetime

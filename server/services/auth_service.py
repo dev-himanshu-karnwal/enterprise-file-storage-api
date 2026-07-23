@@ -89,6 +89,20 @@ def _get_org_or_404(db: Session, organization_id: UUID) -> Organization:
     return organization
 
 
+def _organization_response(db: Session, organization: Organization) -> OrganizationResponse:
+    from services.file_service import org_storage_used
+
+    return OrganizationResponse(
+        id=organization.id,
+        name=organization.name,
+        slug=organization.slug,
+        storage_limit=organization.storage_limit,
+        storage_used=org_storage_used(db, organization_id=organization.id),
+        settings=dict(organization.settings or {}),
+        created_at=organization.created_at,
+    )
+
+
 def _get_user_in_org_or_404(
     db: Session,
     *,
@@ -377,7 +391,7 @@ def delete_user(db: Session, *, actor: User, user_id: UUID) -> None:
 
 def list_organizations(db: Session, *, actor: User) -> list[OrganizationResponse]:
     organization = _get_org_or_404(db, actor.organization_id)
-    return [OrganizationResponse.model_validate(organization)]
+    return [_organization_response(db, organization)]
 
 
 def create_organization(
@@ -394,13 +408,14 @@ def create_organization(
         storage_limit=payload.storage_limit
         if payload.storage_limit is not None
         else 10 * 1024 * 1024 * 1024,
+        settings=payload.settings or {},
     )
     db.add(organization)
     actor.organization_id = organization.id
     actor.role = UserRole.ADMIN
     db.commit()
     db.refresh(organization)
-    return OrganizationResponse.model_validate(organization)
+    return _organization_response(db, organization)
 
 
 def update_organization(
@@ -428,7 +443,12 @@ def update_organization(
         organization.name = data["name"].strip()
     if "storage_limit" in data and data["storage_limit"] is not None:
         organization.storage_limit = data["storage_limit"]
+    if "settings" in data and data["settings"] is not None:
+        # Shallow merge so partial updates keep unrelated keys.
+        merged = dict(organization.settings or {})
+        merged.update(data["settings"])
+        organization.settings = merged
 
     db.commit()
     db.refresh(organization)
-    return OrganizationResponse.model_validate(organization)
+    return _organization_response(db, organization)

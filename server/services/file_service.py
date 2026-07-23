@@ -5,14 +5,21 @@ from pathlib import PurePosixPath
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from config import get_settings
 from core import redis_client
 from core import s3 as s3_storage
+from core.mime_allowlist import (
+    FILE_TYPE_EXTENSIONS,
+    FILE_TYPE_MIME_EXACT,
+    FILE_TYPE_MIME_PREFIXES,
+    allowlist_error_detail,
+    is_allowed_upload,
+)
 from core.pagination import paginate
-from models import FileVersion, Folder, Project, StoredFile, User
+from models import FileVersion, Folder, Organization, Project, StoredFile, User
 from schemas.common import PaginatedResponse, PaginationParams, SearchFileResult
 from schemas.files import (
     CompleteUploadRequest,
@@ -21,6 +28,7 @@ from schemas.files import (
     FileVersionResponse,
     PresignUploadRequest,
     PresignUploadResponse,
+    UpdateFileRequest,
 )
 
 settings = get_settings()
@@ -109,6 +117,88 @@ def _find_active_by_name(
     )
 
 
+def org_storage_used(db: Session, *, organization_id: UUID) -> int:
+    """Bytes used by all file versions in the org (includes trash until purge)."""
+    total = db.scalar(
+        select(func.coalesce(func.sum(FileVersion.size), 0))
+        .select_from(FileVersion)
+        .join(StoredFile, FileVersion.file_id == StoredFile.id)
+        .join(Project, StoredFile.project_id == Project.id)
+        .where(Project.organization_id == organization_id)
+    )
+    return int(total or 0)
+
+
+def _assert_storage_quota(db: Session, *, organization_id: UUID, additional_bytes: int) -> None:
+    organization = db.scalar(select(Organization).where(Organization.id == organization_id))
+    if organization is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    used = org_storage_used(db, organization_id=organization_id)
+    if used + additional_bytes > organization.storage_limit:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"Organization storage limit exceeded "
+                f"({used + additional_bytes} > {organization.storage_limit} bytes)"
+            ),
+        )
+
+
+def _apply_file_filters(
+    query: Select[tuple[StoredFile]],
+    *,
+    uploaded_after: datetime | None = None,
+    uploaded_before: datetime | None = None,
+    file_type: str | None = None,
+    size_min: int | None = None,
+    size_max: int | None = None,
+    owner: UUID | None = None,
+    tag: str | None = None,
+) -> Select[tuple[StoredFile]]:
+    if uploaded_after is not None:
+        query = query.where(StoredFile.created_at >= uploaded_after)
+    if uploaded_before is not None:
+        query = query.where(StoredFile.created_at <= uploaded_before)
+    if size_min is not None:
+        query = query.where(StoredFile.size >= size_min)
+    if size_max is not None:
+        query = query.where(StoredFile.size <= size_max)
+    if owner is not None:
+        query = query.where(StoredFile.uploaded_by == owner)
+    if tag:
+        normalized = tag.strip().lower()
+        if normalized:
+            query = query.where(StoredFile.tags.contains([normalized]))
+    if file_type:
+        query = _apply_file_type_filter(query, file_type=file_type.strip().lower())
+    return query
+
+
+def _apply_file_type_filter(
+    query: Select[tuple[StoredFile]],
+    *,
+    file_type: str,
+) -> Select[tuple[StoredFile]]:
+    prefixes = FILE_TYPE_MIME_PREFIXES.get(file_type, ())
+    exact = FILE_TYPE_MIME_EXACT.get(file_type, frozenset())
+    extensions = FILE_TYPE_EXTENSIONS.get(file_type, frozenset())
+
+    if not prefixes and not exact and not extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="file_type must be one of: image, pdf, video, zip, document",
+        )
+
+    clauses = []
+    for prefix in prefixes:
+        clauses.append(StoredFile.mime_type.ilike(f"{prefix}%"))
+    if exact:
+        clauses.append(StoredFile.mime_type.in_(exact))
+    if extensions:
+        clauses.append(StoredFile.extension.in_(extensions))
+    return query.where(or_(*clauses))
+
+
 def presign_upload(
     db: Session,
     *,
@@ -126,6 +216,20 @@ def presign_upload(
             detail=f"File exceeds max size of {settings.max_upload_size_bytes} bytes",
         )
 
+    filename = payload.filename.strip() or "untitled"
+    content_type = (payload.content_type or "application/octet-stream").strip()
+    if not is_allowed_upload(filename=filename, content_type=content_type):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=allowlist_error_detail(),
+        )
+
+    _assert_storage_quota(
+        db,
+        organization_id=actor.organization_id,
+        additional_bytes=payload.size,
+    )
+
     project = _get_project_for_org(
         db,
         project_id=payload.project_id,
@@ -139,8 +243,6 @@ def presign_upload(
             organization_id=actor.organization_id,
         )
 
-    filename = payload.filename.strip() or "untitled"
-    content_type = (payload.content_type or "application/octet-stream").strip()
     existing = _find_active_by_name(
         db,
         project_id=project.id,
@@ -179,6 +281,7 @@ def presign_upload(
         "content_type": content_type,
         "size": payload.size,
         "storage_key": storage_key,
+        "tags": payload.tags,
     }
     redis_client.store_pending_upload(
         upload_id=upload_id,
@@ -239,6 +342,7 @@ def complete_upload(
     filename = pending["filename"]
     content_type = pending["content_type"]
     storage_key = pending["storage_key"]
+    tags = list(pending.get("tags") or [])
 
     if pending["existing_file_id"] is None:
         stored = StoredFile(
@@ -252,6 +356,7 @@ def complete_upload(
             size=actual_size,
             checksum=checksum,
             storage_key=storage_key,
+            tags=tags,
             uploaded_by=actor.id,
         )
         version_row = FileVersion(
@@ -281,6 +386,8 @@ def complete_upload(
     existing.storage_key = storage_key
     existing.uploaded_by = actor.id
     existing.extension = _extension_of(filename)
+    if tags:
+        existing.tags = tags
 
     version_row = FileVersion(
         id=uuid.uuid4(),
@@ -304,6 +411,16 @@ def list_files(
     project_id: UUID,
     folder_id: UUID | None = None,
     include_deleted: bool = False,
+    uploaded_after: datetime | None = None,
+    uploaded_before: datetime | None = None,
+    file_type: str | None = None,
+    size_min: int | None = None,
+    size_max: int | None = None,
+    owner: UUID | None = None,
+    tag: str | None = None,
+    # When True, folder_id is an optional filter (None = all folders).
+    # When False (browse mode), None means project root only.
+    filter_mode: bool = False,
     params: PaginationParams,
 ) -> PaginatedResponse[FileResponse]:
     _get_project_for_org(
@@ -318,7 +435,16 @@ def list_files(
         query = query.where(StoredFile.deleted_at.is_not(None))
     else:
         query = query.where(StoredFile.deleted_at.is_(None))
-        if folder_id is None:
+        if filter_mode:
+            if folder_id is not None:
+                _get_folder_in_project(
+                    db,
+                    folder_id=folder_id,
+                    project_id=project_id,
+                    organization_id=actor.organization_id,
+                )
+                query = query.where(StoredFile.folder_id == folder_id)
+        elif folder_id is None:
             query = query.where(StoredFile.folder_id.is_(None))
         else:
             _get_folder_in_project(
@@ -328,6 +454,17 @@ def list_files(
                 organization_id=actor.organization_id,
             )
             query = query.where(StoredFile.folder_id == folder_id)
+
+    query = _apply_file_filters(
+        query,
+        uploaded_after=uploaded_after,
+        uploaded_before=uploaded_before,
+        file_type=file_type,
+        size_min=size_min,
+        size_max=size_max,
+        owner=owner,
+        tag=tag,
+    )
 
     return paginate(
         db,
@@ -348,6 +485,13 @@ def search_files(
     extension: str | None = None,
     uploaded_by: UUID | None = None,
     project_id: UUID | None = None,
+    folder_id: UUID | None = None,
+    tag: str | None = None,
+    uploaded_after: datetime | None = None,
+    uploaded_before: datetime | None = None,
+    file_type: str | None = None,
+    size_min: int | None = None,
+    size_max: int | None = None,
 ) -> PaginatedResponse[SearchFileResult]:
     query = (
         select(StoredFile)
@@ -365,15 +509,36 @@ def search_files(
             organization_id=actor.organization_id,
         )
         query = query.where(StoredFile.project_id == project_id)
+        if folder_id is not None:
+            _get_folder_in_project(
+                db,
+                folder_id=folder_id,
+                project_id=project_id,
+                organization_id=actor.organization_id,
+            )
+            query = query.where(StoredFile.folder_id == folder_id)
+    elif folder_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="folder_id requires project_id",
+        )
 
     if q:
         query = query.where(StoredFile.filename.ilike(f"%{q.strip()}%"))
     if extension:
         query = query.where(StoredFile.extension == extension.lstrip(".").lower())
-    if uploaded_by is not None:
-        query = query.where(StoredFile.uploaded_by == uploaded_by)
 
-    # Default search sort to filename when caller leaves created_at — keep flexible.
+    query = _apply_file_filters(
+        query,
+        uploaded_after=uploaded_after,
+        uploaded_before=uploaded_before,
+        file_type=file_type,
+        size_min=size_min,
+        size_max=size_max,
+        owner=uploaded_by,
+        tag=tag,
+    )
+
     return paginate(
         db,
         query,
@@ -391,6 +556,62 @@ def get_file(db: Session, *, actor: User, file_id: UUID) -> FileResponse:
         organization_id=actor.organization_id,
     )
     return FileResponse.model_validate(stored)
+
+
+def update_file(
+    db: Session,
+    *,
+    actor: User,
+    file_id: UUID,
+    payload: UpdateFileRequest,
+) -> tuple[FileResponse, dict]:
+    """Update folder (move) and/or tags. Returns (file, audit hints)."""
+    stored = _get_file_for_org(
+        db,
+        file_id=file_id,
+        organization_id=actor.organization_id,
+    )
+    data = payload.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update")
+
+    audit_hints: dict = {}
+    previous_folder_id = stored.folder_id
+
+    if "folder_id" in data:
+        new_folder_id = data["folder_id"]
+        if new_folder_id is not None:
+            _get_folder_in_project(
+                db,
+                folder_id=new_folder_id,
+                project_id=stored.project_id,
+                organization_id=actor.organization_id,
+            )
+        clash = _find_active_by_name(
+            db,
+            project_id=stored.project_id,
+            folder_id=new_folder_id,
+            filename=stored.filename,
+        )
+        if clash and clash.id != stored.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An active file with this name already exists in the destination",
+            )
+        stored.folder_id = new_folder_id
+        if previous_folder_id != new_folder_id:
+            audit_hints["moved"] = True
+            audit_hints["from_folder_id"] = str(previous_folder_id) if previous_folder_id else None
+            audit_hints["to_folder_id"] = str(new_folder_id) if new_folder_id else None
+
+    if "tags" in data and data["tags"] is not None:
+        stored.tags = data["tags"]
+        audit_hints["tags_updated"] = True
+        audit_hints["tags"] = data["tags"]
+
+    db.commit()
+    db.refresh(stored)
+    return FileResponse.model_validate(stored), audit_hints
 
 
 def get_download(

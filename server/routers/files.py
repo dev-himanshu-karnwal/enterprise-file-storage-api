@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -16,6 +17,7 @@ from schemas.files import (
     FileVersionResponse,
     PresignUploadRequest,
     PresignUploadResponse,
+    UpdateFileRequest,
 )
 from services import audit_service, file_service
 
@@ -56,6 +58,7 @@ def complete_upload(
             "filename": stored.filename,
             "version": stored.current_version,
             "size": stored.size,
+            "tags": stored.tags,
         },
     )
     return stored
@@ -66,6 +69,20 @@ def list_files(
     project_id: UUID = Query(...),
     folder_id: UUID | None = Query(None),
     include_deleted: bool = Query(False),
+    uploaded_after: datetime | None = Query(None),
+    uploaded_before: datetime | None = Query(None),
+    file_type: str | None = Query(
+        None,
+        description="One of: image, pdf, video, zip, document",
+    ),
+    size_min: int | None = Query(None, ge=0),
+    size_max: int | None = Query(None, ge=0),
+    owner: UUID | None = Query(None, description="uploaded_by user id"),
+    tag: str | None = Query(None),
+    filter_mode: bool = Query(
+        False,
+        description="If true, folder_id is optional; omit it to list across all folders",
+    ),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     params: PaginationParams = Depends(pagination_params),
@@ -76,6 +93,14 @@ def list_files(
         project_id=project_id,
         folder_id=folder_id,
         include_deleted=include_deleted,
+        uploaded_after=uploaded_after,
+        uploaded_before=uploaded_before,
+        file_type=file_type,
+        size_min=size_min,
+        size_max=size_max,
+        owner=owner,
+        tag=tag,
+        filter_mode=filter_mode,
         params=params,
     )
 
@@ -87,6 +112,50 @@ def get_file(
     db: Session = Depends(get_db),
 ) -> FileResponse:
     return file_service.get_file(db, actor=current_user, file_id=file_id)
+
+
+@files_router.patch("/{file_id}", response_model=FileResponse)
+def update_file(
+    file_id: UUID,
+    payload: UpdateFileRequest,
+    request: Request,
+    current_user: User = Depends(require_write_access()),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    stored, hints = file_service.update_file(
+        db,
+        actor=current_user,
+        file_id=file_id,
+        payload=payload,
+    )
+    ip = audit_service.get_client_ip(request)
+    if hints.get("moved"):
+        audit_service.record_audit(
+            db,
+            action=AuditAction.MOVE_FILE,
+            entity="file",
+            entity_id=stored.id,
+            organization_id=current_user.organization_id,
+            user_id=current_user.id,
+            ip_address=ip,
+            metadata={
+                "filename": stored.filename,
+                "from_folder_id": hints.get("from_folder_id"),
+                "to_folder_id": hints.get("to_folder_id"),
+            },
+        )
+    if hints.get("tags_updated"):
+        audit_service.record_audit(
+            db,
+            action=AuditAction.UPDATE_FILE,
+            entity="file",
+            entity_id=stored.id,
+            organization_id=current_user.organization_id,
+            user_id=current_user.id,
+            ip_address=ip,
+            metadata={"filename": stored.filename, "tags": hints.get("tags")},
+        )
+    return stored
 
 
 @files_router.get("/{file_id}/download", response_model=DownloadResponse)

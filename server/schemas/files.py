@@ -1,7 +1,25 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def _normalize_tags(tags: list[str] | None) -> list[str]:
+    if not tags:
+        return []
+    seen: set[str] = set()
+    result: list[str] = []
+    for raw in tags:
+        tag = " ".join(raw.strip().lower().split())
+        if not tag or tag in seen:
+            continue
+        if len(tag) > 64:
+            raise ValueError("Each tag must be at most 64 characters")
+        seen.add(tag)
+        result.append(tag)
+        if len(result) > 20:
+            raise ValueError("At most 20 tags are allowed")
+    return result
 
 
 class FileResponse(BaseModel):
@@ -17,6 +35,7 @@ class FileResponse(BaseModel):
     size: int
     checksum: str
     storage_key: str
+    tags: list[str] = Field(default_factory=list)
     uploaded_by: UUID | None
     deleted_at: datetime | None
     deleted_by: UUID | None
@@ -52,6 +71,12 @@ class PresignUploadRequest(BaseModel):
     filename: str = Field(min_length=1, max_length=512)
     content_type: str = Field(default="application/octet-stream", max_length=255)
     size: int = Field(gt=0)
+    tags: list[str] = Field(default_factory=list)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str]) -> list[str]:
+        return _normalize_tags(value)
 
 
 class PresignUploadResponse(BaseModel):
@@ -67,6 +92,23 @@ class PresignUploadResponse(BaseModel):
 class CompleteUploadRequest(BaseModel):
     upload_id: str = Field(min_length=1)
     checksum: str | None = Field(default=None, max_length=128)
+
+
+class UpdateFileRequest(BaseModel):
+    """Move a file (`folder_id`) and/or replace its tags.
+
+    Omit a field to leave it unchanged. Send ``folder_id: null`` to move to project root.
+    """
+
+    folder_id: UUID | None = None
+    tags: list[str] | None = None
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return _normalize_tags(value)
 
 
 class MessageResponse(BaseModel):

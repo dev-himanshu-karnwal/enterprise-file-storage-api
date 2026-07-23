@@ -1,10 +1,12 @@
 import { apiRequest, ApiError } from "./client";
 import type {
   DownloadInfo,
+  FileListFilters,
   FileVersion,
   Paginated,
   PresignUploadResponse,
   StoredFile,
+  UpdateFilePayload,
 } from "../types";
 
 export async function listFiles(
@@ -12,6 +14,7 @@ export async function listFiles(
   projectId: string,
   folderId?: string | null,
   includeDeleted = false,
+  filters: FileListFilters = {},
 ) {
   const params = new URLSearchParams({
     project_id: projectId,
@@ -25,6 +28,15 @@ export async function listFiles(
   } else if (folderId) {
     params.set("folder_id", folderId);
   }
+  if (filters.filterMode) params.set("filter_mode", "true");
+  if (filters.uploadedAfter) params.set("uploaded_after", filters.uploadedAfter);
+  if (filters.uploadedBefore) params.set("uploaded_before", filters.uploadedBefore);
+  if (filters.fileType) params.set("file_type", filters.fileType);
+  if (filters.sizeMin != null) params.set("size_min", String(filters.sizeMin));
+  if (filters.sizeMax != null) params.set("size_max", String(filters.sizeMax));
+  if (filters.owner) params.set("owner", filters.owner);
+  if (filters.tag) params.set("tag", filters.tag);
+
   const result = await apiRequest<Paginated<StoredFile>>(
     `/files?${params.toString()}`,
     { method: "GET" },
@@ -48,13 +60,14 @@ export async function uploadFile(
     projectId,
     folderId,
     file,
+    tags = [],
   }: {
     projectId: string;
     folderId: string | null;
     file: File;
+    tags?: string[];
   },
 ) {
-  // 1) API only issues a short-lived S3 PUT URL (tiny JSON response)
   const session = await apiRequest<PresignUploadResponse>(
     "/files/uploads/presign",
     {
@@ -65,12 +78,12 @@ export async function uploadFile(
         filename: file.name,
         content_type: file.type || "application/octet-stream",
         size: file.size,
+        tags,
       }),
     },
     accessToken,
   );
 
-  // 2) Browser uploads bytes straight to S3 (no API bandwidth)
   let putResponse: Response;
   try {
     putResponse = await fetch(session.upload_url, {
@@ -92,7 +105,6 @@ export async function uploadFile(
     );
   }
 
-  // 3) API only stores metadata after S3 has the object
   const checksum = await sha256Hex(file);
   return apiRequest<StoredFile>(
     "/files/uploads/complete",
@@ -103,6 +115,14 @@ export async function uploadFile(
         checksum: checksum ?? null,
       }),
     },
+    accessToken,
+  );
+}
+
+export function updateFile(accessToken: string, fileId: string, payload: UpdateFilePayload) {
+  return apiRequest<StoredFile>(
+    `/files/${fileId}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
     accessToken,
   );
 }

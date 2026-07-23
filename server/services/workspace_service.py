@@ -208,6 +208,7 @@ def list_folders(
     project_id: UUID,
     parent_folder_id: UUID | None = None,
     include_deleted: bool = False,
+    all_folders: bool = False,
     params: PaginationParams,
 ) -> PaginatedResponse[FolderResponse]:
     _get_project_for_org(
@@ -222,7 +223,9 @@ def list_folders(
         query = query.where(Folder.deleted_at.is_not(None))
     else:
         query = query.where(Folder.deleted_at.is_(None))
-        if parent_folder_id is None:
+        if all_folders:
+            pass
+        elif parent_folder_id is None:
             query = query.where(Folder.parent_folder_id.is_(None))
         else:
             _get_active_folder(

@@ -30,6 +30,8 @@ class AuditAction(str, enum.Enum):
     DELETE_USER = "DELETE_USER"
     UPDATE_ROLE = "UPDATE_ROLE"
     UPDATE_ORGANIZATION = "UPDATE_ORGANIZATION"
+    MOVE_FILE = "MOVE_FILE"
+    UPDATE_FILE = "UPDATE_FILE"
 
 
 class AuditLog(Base):

@@ -4,12 +4,22 @@ import { ApiError } from "../api/client";
 import * as filesApi from "../api/files";
 import * as workspaceApi from "../api/workspace";
 import { useAuth } from "../context/AuthContext";
-import type { FileVersion, Folder, Project, StoredFile } from "../types";
+import type { FileTypeFilter, FileVersion, Folder, Project, StoredFile } from "../types";
+
+const ACCEPT_UPLOAD =
+  "image/*,.pdf,video/*,.zip,.7z,.gz,.tar,.txt,.csv,.md,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.ods";
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function parseTags(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 export function ProjectFoldersPage() {
@@ -24,6 +34,7 @@ export function ProjectFoldersPage() {
 
   const [project, setProject] = useState<Project | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [allFolders, setAllFolders] = useState<Folder[]>([]);
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [currentFolder, setCurrentFolder] = useState<Folder | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,15 +46,31 @@ export function ProjectFoldersPage() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadTags, setUploadTags] = useState("");
   const [versionsFor, setVersionsFor] = useState<StoredFile | null>(null);
   const [versions, setVersions] = useState<FileVersion[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
+  const [movingFile, setMovingFile] = useState<StoredFile | null>(null);
+  const [moveTarget, setMoveTarget] = useState<string>("");
+  const [editingTagsFile, setEditingTagsFile] = useState<StoredFile | null>(null);
+  const [tagsDraft, setTagsDraft] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterType, setFilterType] = useState<FileTypeFilter | "">("");
+  const [filterTag, setFilterTag] = useState("");
+  const [filterAfter, setFilterAfter] = useState("");
+  const [filterBefore, setFilterBefore] = useState("");
+  const [filterSizeMinMb, setFilterSizeMinMb] = useState("");
+  const [filterSizeMaxMb, setFilterSizeMaxMb] = useState("");
 
   const crumbLabel = useMemo(() => {
     if (showTrash) return "Trash";
     if (currentFolder) return currentFolder.path;
     return "Root";
   }, [showTrash, currentFolder]);
+
+  const hasActiveFilters = Boolean(
+    filterType || filterTag || filterAfter || filterBefore || filterSizeMinMb || filterSizeMaxMb,
+  );
 
   async function refresh() {
     if (!accessToken || !projectId) return;
@@ -57,13 +84,28 @@ export function ProjectFoldersPage() {
         setFolders([]);
         setFiles([]);
         setCurrentFolder(null);
+        setAllFolders([]);
         return;
       }
+
+      setAllFolders(await workspaceApi.listFolders(accessToken, projectId, null, false, true));
+
+      const filters = {
+        fileType: filterType || undefined,
+        tag: filterTag.trim() || undefined,
+        uploadedAfter: filterAfter ? new Date(filterAfter).toISOString() : undefined,
+        uploadedBefore: filterBefore
+          ? new Date(`${filterBefore}T23:59:59`).toISOString()
+          : undefined,
+        sizeMin: filterSizeMinMb ? Math.round(Number(filterSizeMinMb) * 1024 * 1024) : undefined,
+        sizeMax: filterSizeMaxMb ? Math.round(Number(filterSizeMaxMb) * 1024 * 1024) : undefined,
+        filterMode: hasActiveFilters,
+      };
 
       if (showTrash) {
         setCurrentFolder(null);
         setFolders(await workspaceApi.listFolders(accessToken, projectId, null, true));
-        setFiles(await filesApi.listFiles(accessToken, projectId, null, true));
+        setFiles(await filesApi.listFiles(accessToken, projectId, null, true, filters));
       } else {
         let parent: Folder | null = null;
         if (folderId) {
@@ -75,7 +117,15 @@ export function ProjectFoldersPage() {
         setFolders(
           await workspaceApi.listFolders(accessToken, projectId, parent?.id ?? null, false),
         );
-        setFiles(await filesApi.listFiles(accessToken, projectId, parent?.id ?? null, false));
+        setFiles(
+          await filesApi.listFiles(
+            accessToken,
+            projectId,
+            hasActiveFilters ? parent?.id ?? undefined : parent?.id ?? null,
+            false,
+            filters,
+          ),
+        );
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load workspace");
@@ -86,7 +136,18 @@ export function ProjectFoldersPage() {
 
   useEffect(() => {
     void refresh();
-  }, [accessToken, projectId, folderId, showTrash]);
+  }, [
+    accessToken,
+    projectId,
+    folderId,
+    showTrash,
+    filterType,
+    filterTag,
+    filterAfter,
+    filterBefore,
+    filterSizeMinMb,
+    filterSizeMaxMb,
+  ]);
 
   function openFolder(id: string | null) {
     const next = new URLSearchParams(searchParams);
@@ -167,14 +228,17 @@ export function ProjectFoldersPage() {
     setError(null);
     setSuccess(null);
     try {
+      const tags = parseTags(uploadTags);
       for (const file of Array.from(selected)) {
         await filesApi.uploadFile(accessToken, {
           projectId,
           folderId,
           file,
+          tags,
         });
       }
       setSuccess(selected.length === 1 ? "File uploaded." : `${selected.length} files uploaded.`);
+      setUploadTags("");
       await refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Upload failed — check S3 config");
@@ -220,6 +284,36 @@ export function ProjectFoldersPage() {
     }
   }
 
+  async function handleMoveFile() {
+    if (!accessToken || !canWrite || !movingFile) return;
+    setError(null);
+    try {
+      await filesApi.updateFile(accessToken, movingFile.id, {
+        folder_id: moveTarget || null,
+      });
+      setSuccess(`Moved ${movingFile.filename}.`);
+      setMovingFile(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to move file");
+    }
+  }
+
+  async function handleSaveTags() {
+    if (!accessToken || !canWrite || !editingTagsFile) return;
+    setError(null);
+    try {
+      await filesApi.updateFile(accessToken, editingTagsFile.id, {
+        tags: parseTags(tagsDraft),
+      });
+      setSuccess(`Updated tags for ${editingTagsFile.filename}.`);
+      setEditingTagsFile(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to update tags");
+    }
+  }
+
   async function openVersions(file: StoredFile) {
     if (!accessToken) return;
     setVersionsFor(file);
@@ -246,6 +340,15 @@ export function ProjectFoldersPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to restore version");
     }
+  }
+
+  function clearFilters() {
+    setFilterType("");
+    setFilterTag("");
+    setFilterAfter("");
+    setFilterBefore("");
+    setFilterSizeMinMb("");
+    setFilterSizeMaxMb("");
   }
 
   if (!loading && !project) {
@@ -292,6 +395,13 @@ export function ProjectFoldersPage() {
         <div className="header-actions">
           {!showTrash ? (
             <>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowFilters((value) => !value)}
+              >
+                {showFilters || hasActiveFilters ? "Filters" : "Filter"}
+              </button>
               <button type="button" className="btn btn-secondary" onClick={openTrash}>
                 Trash
               </button>
@@ -317,6 +427,7 @@ export function ProjectFoldersPage() {
                     type="file"
                     className="sr-only"
                     multiple
+                    accept={ACCEPT_UPLOAD}
                     onChange={(e) => void handleUpload(e.target.files)}
                   />
                 </>
@@ -332,6 +443,94 @@ export function ProjectFoldersPage() {
 
       {error && <div className="alert alert-error page-alert">{error}</div>}
       {success && <div className="alert alert-success page-alert">{success}</div>}
+
+      {canWrite && !showTrash && (
+        <div className="field upload-tags-field">
+          <label htmlFor="upload-tags">Tags for next upload (comma-separated)</label>
+          <input
+            id="upload-tags"
+            value={uploadTags}
+            onChange={(e) => setUploadTags(e.target.value)}
+            placeholder="finance, q3"
+          />
+        </div>
+      )}
+
+      {showFilters && !showTrash && (
+        <section className="form-card page-form filter-panel">
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="filter-type">Type</label>
+              <select
+                id="filter-type"
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value as FileTypeFilter | "")}
+              >
+                <option value="">Any</option>
+                <option value="image">Image</option>
+                <option value="pdf">PDF</option>
+                <option value="video">Video</option>
+                <option value="zip">ZIP / archive</option>
+                <option value="document">Document</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="filter-tag">Tag</label>
+              <input
+                id="filter-tag"
+                value={filterTag}
+                onChange={(e) => setFilterTag(e.target.value)}
+                placeholder="finance"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="filter-after">Uploaded after</label>
+              <input
+                id="filter-after"
+                type="date"
+                value={filterAfter}
+                onChange={(e) => setFilterAfter(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="filter-before">Uploaded before</label>
+              <input
+                id="filter-before"
+                type="date"
+                value={filterBefore}
+                onChange={(e) => setFilterBefore(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="filter-size-min">Min size (MB)</label>
+              <input
+                id="filter-size-min"
+                type="number"
+                min="0"
+                step="0.1"
+                value={filterSizeMinMb}
+                onChange={(e) => setFilterSizeMinMb(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="filter-size-max">Max size (MB)</label>
+              <input
+                id="filter-size-max"
+                type="number"
+                min="0"
+                step="0.1"
+                value={filterSizeMaxMb}
+                onChange={(e) => setFilterSizeMaxMb(e.target.value)}
+              />
+            </div>
+          </div>
+          {hasActiveFilters && (
+            <button type="button" className="btn btn-ghost btn-compact" onClick={clearFilters}>
+              Clear filters
+            </button>
+          )}
+        </section>
+      )}
 
       {showCreate && canWrite && !showTrash && (
         <section className="form-card page-form">
@@ -377,88 +576,89 @@ export function ProjectFoldersPage() {
           </div>
         ) : (
           <div className="item-grid">
-            {folders.map((folder) => (
-              <article key={folder.id} className="item-card">
-                {renamingId === folder.id ? (
-                  <div className="item-card-main item-card-edit">
-                    <input
-                      className="inline-input"
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      aria-label="Rename folder"
-                    />
-                    <div className="row-actions">
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-compact"
-                        onClick={() => void handleRename(folder)}
-                      >
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-compact"
-                        onClick={() => setRenamingId(null)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="item-card-main linkish-block"
-                      onClick={() => !showTrash && openFolder(folder.id)}
-                      disabled={showTrash}
-                    >
-                      <span className="item-icon" aria-hidden>
-                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
-                        </svg>
-                      </span>
-                      <span className="item-copy">
-                        <strong>{folder.name}</strong>
-                        <span>{folder.path}</span>
-                      </span>
-                    </button>
-                    {canWrite && (
+            {!hasActiveFilters &&
+              folders.map((folder) => (
+                <article key={folder.id} className="item-card">
+                  {renamingId === folder.id ? (
+                    <div className="item-card-main item-card-edit">
+                      <input
+                        className="inline-input"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        aria-label="Rename folder"
+                      />
                       <div className="row-actions">
-                        {showTrash ? (
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-compact"
-                            onClick={() => void handleRestoreFolder(folder)}
-                          >
-                            Restore
-                          </button>
-                        ) : (
-                          <>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-compact"
+                          onClick={() => void handleRename(folder)}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-compact"
+                          onClick={() => setRenamingId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="item-card-main linkish-block"
+                        onClick={() => !showTrash && openFolder(folder.id)}
+                        disabled={showTrash}
+                      >
+                        <span className="item-icon" aria-hidden>
+                          <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" />
+                          </svg>
+                        </span>
+                        <span className="item-copy">
+                          <strong>{folder.name}</strong>
+                          <span>{folder.path}</span>
+                        </span>
+                      </button>
+                      {canWrite && (
+                        <div className="row-actions">
+                          {showTrash ? (
                             <button
                               type="button"
                               className="btn btn-secondary btn-compact"
-                              onClick={() => {
-                                setRenamingId(folder.id);
-                                setRenameValue(folder.name);
-                              }}
+                              onClick={() => void handleRestoreFolder(folder)}
                             >
-                              Rename
+                              Restore
                             </button>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-compact btn-danger-text"
-                              onClick={() => void handleDeleteFolder(folder)}
-                            >
-                              Delete
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-              </article>
-            ))}
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-compact"
+                                onClick={() => {
+                                  setRenamingId(folder.id);
+                                  setRenameValue(folder.name);
+                                }}
+                              >
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-compact btn-danger-text"
+                                onClick={() => void handleDeleteFolder(folder)}
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </article>
+              ))}
 
             {files.map((file) => (
               <article key={file.id} className="item-card">
@@ -474,6 +674,15 @@ export function ProjectFoldersPage() {
                       v{file.current_version} · {formatBytes(file.size)}
                       {file.extension ? ` · .${file.extension}` : ""}
                     </span>
+                    {file.tags?.length > 0 && (
+                      <span className="tag-list">
+                        {file.tags.map((tag) => (
+                          <span key={tag} className="tag-chip">
+                            {tag}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </span>
                 </div>
                 <div className="row-actions">
@@ -504,13 +713,35 @@ export function ProjectFoldersPage() {
                         Versions
                       </button>
                       {canWrite && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-compact btn-danger-text"
-                          onClick={() => void handleDeleteFile(file)}
-                        >
-                          Delete
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-compact"
+                            onClick={() => {
+                              setMovingFile(file);
+                              setMoveTarget(file.folder_id ?? "");
+                            }}
+                          >
+                            Move
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-compact"
+                            onClick={() => {
+                              setEditingTagsFile(file);
+                              setTagsDraft((file.tags ?? []).join(", "));
+                            }}
+                          >
+                            Tags
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-compact btn-danger-text"
+                            onClick={() => void handleDeleteFile(file)}
+                          >
+                            Delete
+                          </button>
+                        </>
                       )}
                     </>
                   )}
@@ -588,6 +819,90 @@ export function ProjectFoldersPage() {
                 </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {movingFile && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setMovingFile(null)}>
+          <div
+            className="modal-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="move-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 id="move-title">Move — {movingFile.filename}</h2>
+              <button
+                type="button"
+                className="btn btn-ghost btn-compact"
+                onClick={() => setMovingFile(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="form-stack">
+              <div className="field">
+                <label htmlFor="move-folder">Destination folder</label>
+                <select
+                  id="move-folder"
+                  value={moveTarget}
+                  onChange={(e) => setMoveTarget(e.target.value)}
+                >
+                  <option value="">Project root</option>
+                  {allFolders.map((folder) => (
+                    <option key={folder.id} value={folder.id}>
+                      {folder.path}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button type="button" className="btn btn-primary" onClick={() => void handleMoveFile()}>
+                Move file
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingTagsFile && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => setEditingTagsFile(null)}
+        >
+          <div
+            className="modal-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tags-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 id="tags-title">Tags — {editingTagsFile.filename}</h2>
+              <button
+                type="button"
+                className="btn btn-ghost btn-compact"
+                onClick={() => setEditingTagsFile(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="form-stack">
+              <div className="field">
+                <label htmlFor="edit-tags">Comma-separated tags</label>
+                <input
+                  id="edit-tags"
+                  value={tagsDraft}
+                  onChange={(e) => setTagsDraft(e.target.value)}
+                  placeholder="finance, q3"
+                />
+              </div>
+              <button type="button" className="btn btn-primary" onClick={() => void handleSaveTags()}>
+                Save tags
+              </button>
+            </div>
           </div>
         </div>
       )}

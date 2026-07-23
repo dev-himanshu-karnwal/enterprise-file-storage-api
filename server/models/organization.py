@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import BigInteger, DateTime, String, Uuid, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -23,6 +25,12 @@ class Organization(Base):
         BigInteger,
         nullable=False,
         default=10 * 1024 * 1024 * 1024,  # 10 GB
+    )
+    settings: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default="{}",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

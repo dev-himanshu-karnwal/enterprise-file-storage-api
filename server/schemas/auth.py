@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -78,11 +79,13 @@ class UpdateUserRequest(BaseModel):
 class CreateOrganizationRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     storage_limit: int | None = Field(default=None, gt=0)
+    settings: dict[str, Any] | None = None
 
 
 class UpdateOrganizationRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     storage_limit: int | None = Field(default=None, gt=0)
+    settings: dict[str, Any] | None = None
 
 
 class TokenResponse(BaseModel):
@@ -110,6 +113,8 @@ class OrganizationResponse(BaseModel):
     name: str
     slug: str
     storage_limit: int
+    storage_used: int = 0
+    settings: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
 

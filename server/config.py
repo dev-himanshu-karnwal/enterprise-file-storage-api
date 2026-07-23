@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = 100 * 1024 * 1024  # 100 MB
 
     # Soft-deleted items older than this are permanently purged (S3 + DB).
-    # Testing default: 60s. Production (30 days): 2592000.
-    trash_retention_seconds: int = 60
-    trash_purge_interval_seconds: int = 20
+    # PRD default: 30 days. Override with TRASH_RETENTION_SECONDS=60 for local testing.
+    trash_retention_seconds: int = 2_592_000
+    trash_purge_interval_seconds: int = 3_600
 
     model_config = SettingsConfigDict(
         env_file=".env",
